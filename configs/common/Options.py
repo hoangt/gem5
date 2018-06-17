@@ -98,6 +98,7 @@ def addNoISAOptions(parser):
                       help="use external port for SystemC TLM cosimulation")
     parser.add_option("--caches", action="store_true")
     parser.add_option("--l2cache", action="store_true")
+    parser.add_option("--l3cache", action="store_true")
     parser.add_option("--num-dirs", type="int", default=1)
     parser.add_option("--num-l2caches", type="int", default=1)
     parser.add_option("--num-l3caches", type="int", default=1)
@@ -160,6 +161,7 @@ def addCommonOptions(parser):
                       help="""Data dependency trace file input to
                       Elastic Trace probe in a capture simulation and
                       Trace CPU in a replay simulation""", default="")
+    parser.add_option("--gen_mem_trace", action="store_true");
 
     parser.add_option("-l", "--lpae", action="store_true")
     parser.add_option("-V", "--virtualisation", action="store_true")
