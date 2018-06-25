@@ -1,0 +1,65 @@
+#====
+gem5_home   = /home/hoangt/WORK/TOOLS/Gem5/gem5-base/gem5
+gem5_build  = $(gem5_home)/build/ARM
+gem5_util   = $(gem5_home)/util/plot_dram
+gem5_config = $(gem5_home)/configs/dram
+
+#====
+script      = sweep.py
+mem_type    = dram
+outdir      = $(gem5_home)/output/traffic_mem_sim
+
+#=====
+dram-sweep:
+	rm -rf $(outdir)/$(mem_type)
+	$(gem5_build)/gem5.opt \
+		--outdir=$(outdir)/$(mem_type) \
+		--redirect-stdout --stdout-file=simout \
+		--redirect-stderr --stderr-file=simerr \
+		$(gem5_config)/$(script) \
+		--mem-type=DDR3_1600_8x8 \
+		--mem-rank=1 \
+		--rd_perc=100 \
+    --mode=DRAM \
+    --addr_map=0 \
+		--cfg_out=$(outdir)/sweep.cfg
+
+lp-dram-sweep:
+	rm -rf $(outdir)
+	$(gem5_build)/gem5.opt \
+		--outdir=$(outdir)lp_$(mem_type) \
+		--redirect-stdout --stdout-file=simout \
+		--redirect-stderr --stderr-file=simerr \
+		$(gem5_config)/low_power_sweep.py \
+		--mem-type=DDR3_1600_8x8 \
+		--mem-rank=1 \
+		--rd_perc=100 \
+    --mode=DRAM \
+    --addr_map=0 \
+		--cfg_out=$(outdir)/sweep.cfg
+
+mem-sweep:
+	@make dram-sweep sweep script=sweep.py mem_type=dram
+
+#====
+plot:
+	cd $(outdir) && rm -rf plot*sweep.pdf
+	for opt in e p u ; do \
+		$(gem5_util)/dram_sweep_plot.py -$$opt $(outdir)/$(mem_type) ; \
+	done
+
+dram-plot:
+	@make plot mem_type=dram
+
+lp-dram-plot:
+	@make plot mem_type=lp-dram
+
+#====
+mem-lat:
+	$(gem5_build)/gem5.opt \
+		--outdir=$(outdir)/$(mem_type \
+		--redirect-stdout --stdout-file=simout \
+		--redirect-stderr --stderr-file=simerr \
+		$(gem5_script)/lat_mem_rd.py \
+		--mem-type=DDR3_1600_8x8 \
+		--mem-size=256MB

@@ -47,7 +47,7 @@ import m5
 from m5.objects import *
 from Caches import *
 
-def config_cache(options, system, get_mem_trace = False):
+def config_cache(options, system):
     if options.external_memory_system and (options.caches or options.l2cache):
         print("External caches and internal caches are exclusive options.\n")
         sys.exit(1)
@@ -92,6 +92,7 @@ def config_cache(options, system, get_mem_trace = False):
         system.tol2bus = L2XBar(clk_domain = system.cpu_clk_domain)
         system.l2.cpu_side = system.tol2bus.master
 
+        # add L3 as LLC
         if options.l3cache:
             l3_cache_class = L3Cache
             system.l3 = l3_cache_class(clk_domain=system.cpu_clk_domain,
@@ -102,23 +103,23 @@ def config_cache(options, system, get_mem_trace = False):
 
             # Connect L2 to L3 bus
             system.l2.mem_side = system.tol3bus.slave
-            if not get_mem_trace:
-                system.l3.mem_side = system.membus.slave
-            else: # gen trace between L3 and main memory
+            if options.l3trace: # gen trace between L3 and main memory
                 system.mem_monitor = CommMonitor()
                 system.mem_monitor.trace =  MemTraceProbe(trace_file=
-                                              "l3_mem_trace.trc.gz")
+                                              "l3_trace.trc.gz")
                 system.l3.mem_side = system.mem_monitor.slave
                 system.mem_monitor.master = system.membus.slave
+            else:
+                system.l3.mem_side = system.membus.slave
         else:
-            if not get_mem_trace:
-                system.l2.mem_side = system.membus.slave
-            else: # gen trace between L2 and main memory
+            if options.l2trace: # gen trace between L2 and main memory
                 system.mem_monitor = CommMonitor()
                 system.mem_monitor.trace =  MemTraceProbe(trace_file=
-                                              "l2_mem_trace.trc.gz")
+                                              "l2_trace.trc.gz")
                 system.l2.mem_side = system.mem_monitor.slave
                 system.mem_monitor.master = system.membus.slave
+            else:
+                system.l2.mem_side = system.membus.slave
 
     if options.memchecker:
         system.memchecker = MemChecker()
@@ -156,8 +157,11 @@ def config_cache(options, system, get_mem_trace = False):
 
             # When connecting the caches, the clock is also inherited
             # from the CPU in question
+            if options.l1trace:
+                print(">>> options.caches and options.l1trace are enable\n")
             system.cpu[i].addPrivateSplitL1Caches(icache, dcache,
-                                                  iwalkcache, dwalkcache)
+                                                  iwalkcache, dwalkcache,
+                                                  options.l1trace)
 
             if options.memchecker:
                 # The mem_side ports of the caches haven't been connected yet.
@@ -182,9 +186,7 @@ def config_cache(options, system, get_mem_trace = False):
                         ExternalCache("cpu%d.icache" % i),
                         ExternalCache("cpu%d.dcache" % i))
 
-        # Create interrupt controller
         system.cpu[i].createInterruptController()
-
         if options.l2cache:
             system.cpu[i].connectAllPorts(system.tol2bus, system.membus)
         elif options.external_memory_system:

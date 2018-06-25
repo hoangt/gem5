@@ -133,7 +133,9 @@ trace-gen:
 	--caches \
 	--l2cache \
 	--l3cache \
-	--gen_mem_trace \
+	--l1trace \
+	--l2trace \
+	--l3trace \
 	--mem-type=SimpleMemory \
 	--cmd=tests/test-progs/hello/bin/arm/linux/hello
 

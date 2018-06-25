@@ -112,6 +112,10 @@ def addNoISAOptions(parser):
     parser.add_option("--l3_assoc", type="int", default=16)
     parser.add_option("--cacheline_size", type="int", default=64)
 
+    parser.add_option("--l1trace", action="store_true")
+    parser.add_option("--l2trace", action="store_true")
+    parser.add_option("--l3trace", action="store_true")
+
     # Enable Ruby
     parser.add_option("--ruby", action="store_true")
 
@@ -161,7 +165,6 @@ def addCommonOptions(parser):
                       help="""Data dependency trace file input to
                       Elastic Trace probe in a capture simulation and
                       Trace CPU in a replay simulation""", default="")
-    parser.add_option("--gen_mem_trace", action="store_true");
 
     parser.add_option("-l", "--lpae", action="store_true")
     parser.add_option("-V", "--virtualisation", action="store_true")

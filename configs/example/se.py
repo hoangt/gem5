@@ -279,11 +279,7 @@ else:
     MemClass = Simulation.setMemClass(options)
     system.membus = SystemXBar()
     system.system_port = system.membus.slave
-    if (options.l2cache or options.l2cache) and options.gen_mem_trace:
-        CacheConfig.config_cache(options, system,
-                                 get_mem_trace=options.gen_mem_trace)
-    else:
-        CacheConfig.config_cache(options, system, get_mem_trace=False)
+    CacheConfig.config_cache(options, system)
     MemConfig.config_mem(options, system)
 
 root = Root(full_system = False, system = system)

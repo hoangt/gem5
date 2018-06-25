@@ -43,7 +43,7 @@ install:
 		echo ">>> Finished GEM5 for <$(ARCH)> architecture in mode <$$model> mode !!!" ; \
 	done
 
-test:
+compile:
 	@rm -rf build/ARM/gem5.opt
 	@scons -j8  build/ARM/gem5.opt CC=gcc  CXX=g++
 

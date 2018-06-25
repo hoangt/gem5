@@ -53,7 +53,6 @@ from m5.proxy import *
 from m5.util.fdthelper import *
 
 from XBar import L2XBar
-from XBar import L3XBar
 from InstTracer import InstTracer
 from CPUTracers import ExeTracer
 from MemObject import MemObject
@@ -61,6 +60,7 @@ from SubSystem import SubSystem
 from ClockDomain import *
 from Platform import Platform
 
+from XBar import L3XBar
 from CommMonitor import CommMonitor
 from MemTraceProbe import MemTraceProbe
 
@@ -287,34 +287,33 @@ class BaseCPU(MemObject):
         self.connectUncachedPorts(uncached_bus)
 
     def addPrivateSplitL1Caches(self, ic, dc, iwc = None, dwc = None,
-                                enable_trace = True):
+                                l1trace = False):
         self.icache = ic
         self.dcache = dc
 
         # Add tracer between L1D, L1I and CPU
-        if enable_trace == "True":
+        if l1trace:
             self.cpu_l1i_monitor = CommMonitor()
             self.cpu_l1i_monitor.trace = MemTraceProbe(
-                                            trace_file="cpu_l1i_trace.trc.gz")
+                                            trace_file="l1i_trace.trc.gz")
             self.icache_port = self.cpu_l1i_monitor.slave
             self.cpu_l1i_monitor.master = ic.cpu_side
 
             self.cpu_l1d_monitor = CommMonitor()
             self.cpu_l1d_monitor.trace = MemTraceProbe(
-                                            trace_file="cpu_l1d_trace.trc.gz")
+                                            trace_file="l1d_trace.trc.gz")
             self.dcache_port = self.cpu_l1d_monitor.slave
             self.cpu_l1d_monitor.master = dc.cpu_side
         else:
-            self.dcache_port = ic.cpu_side
-            self.icache_port = dc.cpu_side
+            self.icache_port = ic.cpu_side
+            self.dcache_port = dc.cpu_side
 
         self._cached_ports = ['icache.mem_side', 'dcache.mem_side']
         if buildEnv['TARGET_ISA'] in ['x86', 'arm']:
             if iwc and dwc:
                 self.itb_walker_cache = iwc
-                self.itb.walker.port = iwc.cpu_side
-
                 self.dtb_walker_cache = dwc
+                self.itb.walker.port = iwc.cpu_side
                 self.dtb.walker.port = dwc.cpu_side
                 self._cached_ports += ["itb_walker_cache.mem_side", \
                                        "dtb_walker_cache.mem_side"]
@@ -328,16 +327,17 @@ class BaseCPU(MemObject):
                                        "checker.dtb.walker.port"]
 
     def addTwoLevelCacheHierarchy(self, ic, dc, l2c, iwc=None, dwc=None,
-                                  xbar=None, enable_trace = True):
-        self.addPrivateSplitL1Caches(ic, dc, iwc, dwc, enable_trace)
+                                  xbar=None,
+                                  l1trace=False, l2trace=False):
+        self.addPrivateSplitL1Caches(ic, dc, iwc, dwc, l1trace)
         self.toL2Bus = xbar if xbar else L2XBar()
         self.connectCachedPorts(self.toL2Bus)
         self.l2cache = l2c
 
-        if enable_trace == "True":
+        if l2trace:
             self.l1_l2_monitor = CommMonitor()
             self.l1_l2_monitor.trace = MemTraceProbe(
-                                           trace_file="l1_l2_trace.trc.gz")
+                                           trace_file="l2_trace.trc.gz")
             self.toL2Bus.master = self.l1_l2_monitor.slave
             self.l1_l2_monitor.master = self.l2cache.cpu_side
         else:
@@ -347,17 +347,19 @@ class BaseCPU(MemObject):
 
     # Add support L3 cache
     def addThreeLevelCacheHierarchy(self, ic, dc, l2c, l3c, iwc=None, dwc=None,
-                                    xbar=None, enable_trace = True):
+                                    xbar=None, enable_trace = True,
+                                    l1cache=False, l2cache=False,
+                                    l3cache=False):
         self.addTwoLevelCacheHierarchy(ic, dc, l2c, iwc, dwl, xbar,
-                                       enable_trace)
+                                       l1cache, l2cache)
         self.toL3Bus = xbar if xbar else L3XBar()
         self.connectCachedPorts(self.toL3Bus)
         self.l3cache = l3c
 
-        if enable_trace == "True":
+        if l3trace:
             self.l2_l3_monitor = CommMonitor()
             self.l2_l3_monitor.trace = MemTraceProbe(
-                                           trace_file="l2_l3_trace.trc.gz")
+                                           trace_file="l3_trace.trc.gz")
             self.toL3Bus.master = self.l2_l3_monitor.slave
             self.l1_l2_monitor.master = self.l2cache.cpu_side
         else:
