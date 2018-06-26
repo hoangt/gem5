@@ -102,7 +102,15 @@ def config_cache(options, system):
             system.l3.cpu_side = system.tol3bus.master
 
             # Connect L2 to L3 bus
-            system.l2.mem_side = system.tol3bus.slave
+            if options.l2trace: # gen trace between L2 and main memory
+                system.l2_monitor = CommMonitor()
+                system.l2_monitor.trace = MemTraceProbe(trace_file=
+                                           "l2_trace.trc.gz")
+                system.l2.mem_side = system.l2_monitor.slave
+                system.l2_monitor.master = system.tol3bus.slave
+            else:
+                system.l2.mem_side = system.tol3bus.slave
+
             if options.l3trace: # gen trace between L3 and main memory
                 system.mem_monitor = CommMonitor()
                 system.mem_monitor.trace =  MemTraceProbe(trace_file=
