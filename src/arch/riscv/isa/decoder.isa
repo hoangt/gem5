@@ -585,6 +585,9 @@ decode QUADRANT default Unknown::unknown() {
         0x0c: decode FUNCT3 {
             format ROp {
                 0x0: decode FUNCT7 {
+                    0x10: mod({{
+                        Rd = Rs1_sd % Rs2_sd;
+                    }});
                     0x0: add({{
                         Rd = Rs1_sd + Rs2_sd;
                     }});

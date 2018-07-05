@@ -121,9 +121,11 @@ fs-sim-server-nocpt:
 	--script=configs/boot/se_benchmarks.rcS
 
 #====
+mem_type=DDR4_2400_8x8
+
 trace-gen:
 	echo "Run test ..."
-	@rm -rf $(output_path)/*
+	@rm -rf $(output_path)
 	$(gem5_build)/gem5.opt \
 	--outdir=$(output_path) \
 	--debug-flags=MemoryAccess,ExecTicks \
@@ -136,8 +138,11 @@ trace-gen:
 	--l1trace \
 	--l2trace \
 	--l3trace \
-	--mem-type=SimpleMemory \
-	--cmd=tests/test-progs/hello/bin/arm/linux/hello
+	--mem-type=$(mem_type) \
+	--mem-size=4096MB \
+	--cmd=stream-benchmark/AARCH64/stream
+
+#	--cmd=tests/test-progs/hello/bin/arm/linux/hello
 
 trace-proc:
 	@echo "Analyzing elastic traces ... "

@@ -37,8 +37,12 @@
 #
 # Authors: Andreas Hansson
 
+help_msg="""
+#=========================================================================
 # This script is used to dump protobuf packet traces to ASCII
 # format.
+#=========================================================================
+"""
 
 import os
 import protolib
@@ -53,6 +57,7 @@ import packet_pb2
 def main():
     if len(sys.argv) != 3:
         print "Usage: ", sys.argv[0], " <protobuf input> <ASCII output>"
+        print help_msg
         exit(-1)
 
     # Open the file in read mode

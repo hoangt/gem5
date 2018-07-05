@@ -67,8 +67,10 @@
 # Authors: Radhika Jagtap
 #
 
+help_msg="""
+#==========================================================================
 # This script is used to dump protobuf traces of the instruction dependency
-# graph to ASCII format.
+# graph to ASCII format.'
 #
 # The ASCII trace format uses one line per instruction with the format
 # instruction sequence number, (optional) pc, (optional) weight, type
@@ -88,6 +90,8 @@
 # 7,35666,1,COMP,3000::,4
 # 8,35670,1,STORE,1748748,4,74,0:,6,3:,7
 # 9,35670,1,COMP,500::,7
+#=========================================================================
+"""
 
 import protolib
 import sys
@@ -112,6 +116,7 @@ except:
 def main():
     if len(sys.argv) != 3:
         print "Usage: ", sys.argv[0], " <protobuf input> <ASCII output>"
+        print help_msg
         exit(-1)
 
     # Open the file on read mode

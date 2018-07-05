@@ -38,12 +38,16 @@
 # Authors: Ali Saidi
 #          Andreas Hansson
 
+help_msg="""
+#=========================================================================
 # This script is used to dump protobuf instruction traces to ASCII
 # format. It assumes that protoc has been executed and already
 # generated the Python package for the inst messages. This can
 # be done manually using:
 # protoc --python_out=. inst.proto
 # The ASCII trace format uses one line per request.
+#=========================================================================
+"""
 
 import protolib
 import sys
@@ -73,6 +77,7 @@ except:
 def main():
     if len(sys.argv) != 3:
         print "Usage: ", sys.argv[0], " <protobuf input> <ASCII output>"
+        print help_msg
         exit(-1)
 
     # Open the file in read mode

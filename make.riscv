@@ -1,0 +1,27 @@
+#====
+gem5_home   = /home/hoangt/WORK/TOOLS/Gem5/gem5-base/gem5
+gem5_build  = $(gem5_home)/build/RISCV
+gem5_config = $(gem5_home)/configs/example
+
+#====
+gem5_script = configs/example/se.py
+mem_type    = DDR4_2400_8x8
+outdir      = $(gem5_home)/output/RISCV/se
+
+#=====
+riscv-test:
+	echo "Run test ..."
+	@rm -rf $(outdir)/stream_bench
+	$(gem5_build)/gem5.opt \
+	--outdir=$(outdir)/stream_bench \
+	--debug-flags=MemoryAccess,ExecTicks \
+	--debug-file=benchmark.trace \
+  $(gem5_script) \
+	--cpu-type=DerivO3CPU \
+	--caches \
+	--l2cache \
+	--l3cache \
+	--l3trace \
+	--mem-type=$(mem_type) \
+	--mem-size=4096MB \
+	--cmd=stream-benchmark/RISCV/stream

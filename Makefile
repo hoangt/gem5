@@ -17,7 +17,11 @@ ARCH_LIST = ALPHA \
 					 	HSAIL_X86 \
 					 	RISCV
 
-BUILD_LIST = debug opt prof perf fast
+CC=gcc
+CXX=g++
+
+#BUILD_LIST = debug opt prof perf fast
+BUILD_LIST = prof
 
 #=================================
 ARCH = ARM
@@ -39,13 +43,21 @@ install:
 	@for model in $(BUILD_LIST) ; do \
 		echo ">>> Start building GEM5 for <$(ARCH)> architecture in <$$model> mode !!!" ; \
 		rm -rf build/$(ARCH)/gem5.$$model
-		scons -j8  build/$(ARCH)/gem5.$$model CC=gcc  CXX=g++; \
+		scons -j8  build/$(ARCH)/gem5.$$model CC=$(CC)  CXX=$(CXX); \
 		echo ">>> Finished GEM5 for <$(ARCH)> architecture in mode <$$model> mode !!!" ; \
 	done
 
-compile:
+comp-arm:
 	@rm -rf build/ARM/gem5.opt
-	@scons -j8  build/ARM/gem5.opt CC=gcc  CXX=g++
+	@scons -j8  build/ARM/gem5.opt CC=$(CC)  CXX=$(CXX)
+
+comp-risc:
+	@rm -rf build/RISCV/gem5.opt
+	@scons -j8  build/RISCV/gem5.opt CC=$(CC)  CXX=$(CXX)
+
+comp-x86:
+	@rm -rf build/X86/gem5.opt
+	@scons -j8  build/X86/gem5.opt CC=$(CC)  CXX=$(CXX)
 
 #=================================
 clean:
