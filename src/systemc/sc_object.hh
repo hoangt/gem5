@@ -1,15 +1,5 @@
 /*
- * Copyright (c) 2012-2013, 2017-2018 ARM Limited
- * All rights reserved
- *
- * The license below extends only to copyright in the software and shall
- * not be construed as granting a license to any other intellectual
- * property including but not limited to intellectual property relating
- * to a hardware implementation of the functionality of the software
- * licensed here under.  You may use the software subject to the license
- * terms below provided that you ensure that this notice is replicated
- * unmodified and in its entirety in all distributions of the software,
- * modified or unmodified, in source code or in binary form.
+ * Copyright 2018 Google, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,42 +24,57 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Sascha Bischoff
- *          Neha Agarwal
+ * Authors: Gabe Black
  */
 
-/**
- * @file
- * Declaration of the idle generator that does nothing.
- */
+#ifndef __SYSTEMC_SC_OBJECT_HH__
+#define __SYSTEMC_SC_OBJECT_HH__
 
-#ifndef __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
-#define __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
+#include <iostream>
+#include <string>
+#include <vector>
 
-#include "base/bitfield.hh"
-#include "base/intmath.hh"
-#include "base_gen.hh"
-#include "mem/packet.hh"
-
-/**
- * The idle generator does nothing.
- */
-class IdleGen : public BaseGen
+namespace sc_core
 {
 
+class sc_event;
+class sc_attr_base;
+class sc_attr_cltn;
+
+class sc_object
+{
   public:
+    const char *name() const;
+    const char *basename() const;
 
-    IdleGen(BaseTrafficGen &gen, Tick _duration)
-        : BaseGen(gen, _duration)
-    { }
+    virtual const char *kind() const;
 
-    void enter();
+    virtual void print(std::ostream & =std::cout) const;
+    virtual void dump(std::ostream & =std::cout) const;
 
-    PacketPtr getNextPacket();
+    virtual const std::vector<sc_object *> &get_child_objects() const;
+    virtual const std::vector<sc_event *> &get_child_events() const;
+    sc_object *get_parent_object() const;
 
-    Tick nextPacketTick(bool elastic, Tick delay) const ;
+    bool add_attribute(sc_attr_base &);
+    sc_attr_base *get_attribute(const std::string &);
+    sc_attr_base *remove_attribute(const std::string &);
+    void remove_all_attributes();
+    int num_attributes() const;
+    sc_attr_cltn &attr_cltn();
+    const sc_attr_cltn &attr_cltn() const;
+
+  protected:
+    sc_object();
+    sc_object(const char *);
+    sc_object(const sc_object &);
+    sc_object &operator = (const sc_object &);
+    virtual ~sc_object();
 };
 
-#endif
+const std::vector<sc_object *> &sc_get_top_level_objects();
+sc_object *sc_find_object(const char *);
+
+} // namespace sc_core
+
+#endif  //__SYSTEMC_SC_OBJECT_HH__

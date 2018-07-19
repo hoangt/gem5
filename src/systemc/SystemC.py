@@ -1,8 +1,4 @@
-# -*- mode:python -*-
-
-# Copyright (c) 2016 RISC-V Foundation
-# Copyright (c) 2016 The University of Virginia
-# All rights reserved.
+# Copyright 2018 Google, Inc.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -27,24 +23,36 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Alec Roelke
-#          Robert Scheffel
+# Authors: Gabe Black
 
-from m5.params import *
-from System import System
+from m5.SimObject import SimObject
 
+# This class represents the systemc kernel. There should be exactly one in the
+# simulation. It receives gem5 SimObject lifecycle callbacks (init, regStats,
+# etc.) and manages the lifecycle of the systemc simulation accordingly.
+# It also acts as a collecting point for systemc related control functionality.
+class SystemC_Kernel(SimObject):
+    type = 'SystemC_Kernel'
+    cxx_class = 'SystemC::Kernel'
+    cxx_header = 'systemc/kernel.hh'
 
-class RiscvSystem(System):
-    type = 'RiscvSystem'
-    cxx_header = 'arch/riscv/system.hh'
-    bare_metal = Param.Bool(False, "Using Bare Metal Application?")
-    reset_vect = Param.Addr(0x0, 'Reset vector')
-    load_addr_mask = 0xFFFFFFFFFFFFFFFF
+# This class represents systemc sc_object instances in python config files. It
+# inherits from SimObject in python, but the c++ version, sc_core::sc_object,
+# doesn't inherit from gem5's c++ SimObject class.
+class SystemC_ScObject(SimObject):
+    type = 'SystemC_ScObject'
+    abstract = True
+    cxx_class = 'sc_core::sc_object'
+    cxx_header = 'systemc/sc_object.hh'
 
+    # Clear cxx_base to stop the c++ binding code from assuming
+    # sc_core::sc_object inherits from SimObject, even though SystemC_ScObject
+    # does on the python side.
+    cxx_base = None
 
-class BareMetalRiscvSystem(RiscvSystem):
-    type = 'BareMetalRiscvSystem'
-    cxx_header = 'arch/riscv/bare_metal/system.hh'
-    bootloader = Param.String("File, that contains the bootloader code")
-
-    bare_metal = True
+    # Hide the cxx_exports from SimObject since we don't inherit from
+    # SimObject on the c++ side and so don't have those methods to call down
+    # into.
+    locals().update({
+        method.name: (lambda *a, **k: None) for method in SimObject.cxx_exports
+    })

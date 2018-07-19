@@ -1,15 +1,5 @@
 /*
- * Copyright (c) 2012-2013, 2017-2018 ARM Limited
- * All rights reserved
- *
- * The license below extends only to copyright in the software and shall
- * not be construed as granting a license to any other intellectual
- * property including but not limited to intellectual property relating
- * to a hardware implementation of the functionality of the software
- * licensed here under.  You may use the software subject to the license
- * terms below provided that you ensure that this notice is replicated
- * unmodified and in its entirety in all distributions of the software,
- * modified or unmodified, in source code or in binary form.
+ * Copyright 2018 Google, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,42 +24,32 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Sascha Bischoff
- *          Neha Agarwal
+ * Authors: Gabe Black
  */
 
-/**
- * @file
- * Declaration of the idle generator that does nothing.
- */
+#ifndef __SYSTEMC_KERNEL_HH__
+#define __SYSTEMC_KERNEL_HH__
 
-#ifndef __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
-#define __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
+#include "params/SystemC_Kernel.hh"
+#include "sim/sim_object.hh"
 
-#include "base/bitfield.hh"
-#include "base/intmath.hh"
-#include "base_gen.hh"
-#include "mem/packet.hh"
-
-/**
- * The idle generator does nothing.
- */
-class IdleGen : public BaseGen
+namespace SystemC
 {
 
+/*
+ * This class represents the systemc kernel. There should be exactly one in
+ * the simulation. It receives gem5 SimObject lifecycle callbacks (init,
+ * regStats, etc.) and manages the lifecycle of the systemc simulation
+ * accordingly. It also acts as a collecting point for systemc related
+ * control functionality.
+ */
+class Kernel : public SimObject
+{
   public:
-
-    IdleGen(BaseTrafficGen &gen, Tick _duration)
-        : BaseGen(gen, _duration)
-    { }
-
-    void enter();
-
-    PacketPtr getNextPacket();
-
-    Tick nextPacketTick(bool elastic, Tick delay) const ;
+    typedef SystemC_KernelParams Params;
+    Kernel(Params *params);
 };
 
-#endif
+} // namespace SystemC
+
+#endif // __SYSTEMC_KERNEL_H__

@@ -1,15 +1,6 @@
 /*
- * Copyright (c) 2012-2013, 2017-2018 ARM Limited
+ * Copyright (c) 2018 TU Dresden
  * All rights reserved
- *
- * The license below extends only to copyright in the software and shall
- * not be construed as granting a license to any other intellectual
- * property including but not limited to intellectual property relating
- * to a hardware implementation of the functionality of the software
- * licensed here under.  You may use the software subject to the license
- * terms below provided that you ensure that this notice is replicated
- * unmodified and in its entirety in all distributions of the software,
- * modified or unmodified, in source code or in binary form.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,42 +25,20 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Sascha Bischoff
- *          Neha Agarwal
+ * Authors: Robert Scheffel
  */
 
-/**
- * @file
- * Declaration of the idle generator that does nothing.
- */
+#include "arch/riscv/utility.hh"
 
-#ifndef __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
-#define __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
+#include "arch/riscv/faults.hh"
 
-#include "base/bitfield.hh"
-#include "base/intmath.hh"
-#include "base_gen.hh"
-#include "mem/packet.hh"
-
-/**
- * The idle generator does nothing.
- */
-class IdleGen : public BaseGen
+namespace RiscvISA
 {
 
-  public:
+void initCPU(ThreadContext *tc, int cpuId)
+{
+    static Fault reset = std::make_shared<Reset>();
+    reset->invoke(tc);
+}
 
-    IdleGen(BaseTrafficGen &gen, Tick _duration)
-        : BaseGen(gen, _duration)
-    { }
-
-    void enter();
-
-    PacketPtr getNextPacket();
-
-    Tick nextPacketTick(bool elastic, Tick delay) const ;
-};
-
-#endif
+}

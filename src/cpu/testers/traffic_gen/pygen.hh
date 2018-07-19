@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2012-2013, 2017-2018 ARM Limited
+ * Copyright (c) 2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
  * not be construed as granting a license to any other intellectual
  * property including but not limited to intellectual property relating
  * to a hardware implementation of the functionality of the software
- * licensed here under.  You may use the software subject to the license
+ * licensed hereunder.  You may use the software subject to the license
  * terms below provided that you ensure that this notice is replicated
  * unmodified and in its entirety in all distributions of the software,
  * modified or unmodified, in source code or in binary form.
@@ -34,42 +34,33 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Sascha Bischoff
- *          Neha Agarwal
+ * Authors: Andreas Sandberg
  */
 
-/**
- * @file
- * Declaration of the idle generator that does nothing.
- */
+#ifndef __CPU_TRAFFIC_GEN_PYGEN_HH__
+#define __CPU_TRAFFIC_GEN_PYGEN_HH__
 
-#ifndef __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
-#define __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
+#include "pybind11/pybind11.h"
 
-#include "base/bitfield.hh"
-#include "base/intmath.hh"
-#include "base_gen.hh"
-#include "mem/packet.hh"
+#include "cpu/testers/traffic_gen/base.hh"
+#include "cpu/testers/traffic_gen/base_gen.hh"
 
-/**
- * The idle generator does nothing.
- */
-class IdleGen : public BaseGen
+struct PyTrafficGenParams;
+
+class M5_LOCAL PyTrafficGen : public BaseTrafficGen
 {
-
   public:
+    PyTrafficGen(const PyTrafficGenParams* p);
+    ~PyTrafficGen() {}
 
-    IdleGen(BaseTrafficGen &gen, Tick _duration)
-        : BaseGen(gen, _duration)
-    { }
+  public: // Python API
+    void start(pybind11::object meta_generator);
 
-    void enter();
+  protected: // BaseTrafficGen
+    std::shared_ptr<BaseGen> nextGenerator() override;
 
-    PacketPtr getNextPacket();
-
-    Tick nextPacketTick(bool elastic, Tick delay) const ;
+  protected: // Internal state
+    pybind11::iterator metaGenerator;
 };
 
-#endif
+#endif //__CPU_TRAFFIC_GEN_PYGEN_HH__

@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2012-2013, 2017-2018 ARM Limited
+ * Copyright (c) 2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
  * not be construed as granting a license to any other intellectual
  * property including but not limited to intellectual property relating
  * to a hardware implementation of the functionality of the software
- * licensed here under.  You may use the software subject to the license
+ * licensed hereunder.  You may use the software subject to the license
  * terms below provided that you ensure that this notice is replicated
  * unmodified and in its entirety in all distributions of the software,
  * modified or unmodified, in source code or in binary form.
@@ -34,42 +34,66 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Authors: Thomas Grass
- *          Andreas Hansson
- *          Sascha Bischoff
- *          Neha Agarwal
+ * Authors: Andreas Sandberg
  */
+#include "cpu/testers/traffic_gen/pygen.hh"
 
-/**
- * @file
- * Declaration of the idle generator that does nothing.
- */
+#include "config/have_protobuf.hh"
+#include "debug/TrafficGen.hh"
+#include "params/PyTrafficGen.hh"
+#include "sim/init.hh"
 
-#ifndef __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
-#define __CPU_TRAFFIC_GEN_IDLE_GEN_HH__
+namespace py = pybind11;
 
-#include "base/bitfield.hh"
-#include "base/intmath.hh"
-#include "base_gen.hh"
-#include "mem/packet.hh"
-
-/**
- * The idle generator does nothing.
- */
-class IdleGen : public BaseGen
+PyTrafficGen::PyTrafficGen(const PyTrafficGenParams *p)
+    : BaseTrafficGen(p)
 {
+}
 
-  public:
+void
+PyTrafficGen::start(pybind11::object meta_generator)
+{
+    metaGenerator = meta_generator.begin();
+    BaseTrafficGen::start();
+}
 
-    IdleGen(BaseTrafficGen &gen, Tick _duration)
-        : BaseGen(gen, _duration)
-    { }
+std::shared_ptr<BaseGen>
+PyTrafficGen::nextGenerator()
+{
+    if (!metaGenerator)
+        return std::shared_ptr<BaseGen>();
 
-    void enter();
+    if (metaGenerator == py::iterator::sentinel()) {
+        DPRINTF(TrafficGen, "No more generators available.\n");
+        return std::shared_ptr<BaseGen>();
+    }
 
-    PacketPtr getNextPacket();
+    try {
+        DPRINTF(TrafficGen, "Casting to C++ base class.\n");
+        std::shared_ptr<BaseGen> gen =
+            metaGenerator->cast<std::shared_ptr<BaseGen>>();
+        metaGenerator++;
+        return gen;
+    } catch (py::cast_error) {
+        fatal("Meta generator didn't return a valid trace generator\n");
+    }
+}
 
-    Tick nextPacketTick(bool elastic, Tick delay) const ;
-};
+void
+pybind_init_tracers(py::module &m_native)
+{
+    using namespace pybind11::literals;
 
-#endif
+    py::module m = m_native.def_submodule("trace");
+
+    py::class_<BaseGen, std::shared_ptr<BaseGen>> c_base(m, "BaseGen");
+}
+
+static EmbeddedPyBind _py_tracers("trace", pybind_init_tracers);
+
+PyTrafficGen*
+PyTrafficGenParams::create()
+{
+    return new PyTrafficGen(this);
+}
+
