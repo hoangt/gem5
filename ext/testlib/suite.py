@@ -1,6 +1,4 @@
-# -*- mode:python -*-
-
-# Copyright (c) 2016 Georgia Institute of Technology.
+# Copyright (c) 2017 Mark D. Hill and David A. Wood
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,15 +24,46 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Tushar Krishna
+# Authors: Sean Wilson
 
-Import('*')
 
-if env['PROTOCOL'] == 'None':
-    Return()
+import helper
+import runner as runner_mod
 
-SimObject('GarnetSyntheticTraffic.py')
+class TestSuite(object):
+    '''
+    An object grouping a collection of tests. It provides tags which enable
+    filtering during list and run selection. All tests held in the suite must
+    have a unique name.
 
-Source('GarnetSyntheticTraffic.cc')
+    ..note::
+        The :func:`__new__` method enables collection of test cases, it must
+        be called in order for test cases to be collected.
 
-DebugFlag('GarnetSyntheticTraffic')
+    ..note::
+        To reduce test definition boilerplate, the :func:`init` method is
+        forwarded all `*args` and `**kwargs`. This means derived classes can
+        define init without boilerplate super().__init__(*args, **kwargs).
+    '''
+    runner = runner_mod.SuiteRunner
+    collector = helper.InstanceCollector()
+    fixtures = []
+    tests = []
+    tags = set()
+
+    def __new__(klass, *args, **kwargs):
+        obj = super(TestSuite, klass).__new__(klass, *args, **kwargs)
+        TestSuite.collector.collect(obj)
+        return obj
+
+    def __init__(self, name=None, fixtures=tuple(), tests=tuple(),
+                 tags=tuple(), **kwargs):
+        self.fixtures = self.fixtures + list(fixtures)
+        self.tags = self.tags | set(tags)
+        self.tests = self.tests + list(tests)
+        if name is None:
+            name = self.__class__.__name__
+        self.name = name
+
+    def __iter__(self):
+        return iter(self.tests)

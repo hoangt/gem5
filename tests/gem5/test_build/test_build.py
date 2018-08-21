@@ -1,6 +1,4 @@
-# -*- mode:python -*-
-
-# Copyright (c) 2016 Georgia Institute of Technology.
+# Copyright (c) 2018 The Regents of the University of California.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,15 +24,31 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Tushar Krishna
+# Authors: Sean Wilson
 
-Import('*')
+'''
+Test file for simply building gem5
+'''
+import re
+import os
+from testlib import *
 
-if env['PROTOCOL'] == 'None':
-    Return()
+common_isas = [constants.x86_tag, constants.arm_tag, constants.riscv_tag]
 
-SimObject('GarnetSyntheticTraffic.py')
+for isa in constants.supported_isas:
+    if isa is constants.null_tag: continue
 
-Source('GarnetSyntheticTraffic.cc')
+    for variant in constants.supported_variants:
+        if isa in common_isas:
+            length = constants.quick_tag
+        else:
+            length = constants.long_tag
 
-DebugFlag('GarnetSyntheticTraffic')
+        tags = [isa, length, variant]
+
+        name = 'build-{isa}-{var}'.format(isa=isa, var=variant)
+        fixture = Gem5Fixture(isa, variant)
+
+        function = TestFunction(lambda fixtures: True, name,
+                                fixtures=[fixture])
+        TestSuite(name=name, tests=[function], tags=tags)

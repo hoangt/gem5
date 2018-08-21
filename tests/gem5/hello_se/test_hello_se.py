@@ -1,6 +1,4 @@
-# -*- mode:python -*-
-
-# Copyright (c) 2016 Georgia Institute of Technology.
+# Copyright (c) 2017 Mark D. Hill and David A. Wood
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,15 +24,35 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Tushar Krishna
+# Authors: Sean Wilson
 
-Import('*')
+'''
+Test file for the util m5 exit assembly instruction.
+'''
+from testlib import *
 
-if env['PROTOCOL'] == 'None':
-    Return()
+test_progs = {
+    'x86': ('hello64-static', 'hello64-dynamic', 'hello32-static'),
+    'arm': ('hello64-static', 'hello32-static'),
+}
 
-SimObject('GarnetSyntheticTraffic.py')
+for isa in test_progs:
+    for binary in test_progs[isa]:
+        import os
+        path = os.path.join('hello', 'bin', isa, 'linux')
+        hello_program = DownloadedProgram(path, binary)
 
-Source('GarnetSyntheticTraffic.cc')
+        ref_path = joinpath(getcwd(), 'ref')
 
-DebugFlag('GarnetSyntheticTraffic')
+        verifiers = (
+                verifier.MatchStdoutNoPerf(joinpath(ref_path, 'simout')),
+        )
+
+        gem5_verify_config(
+                name='test'+binary,
+                fixtures=(hello_program,),
+                verifiers=verifiers,
+                config=joinpath(config.base_dir, 'configs', 'example','se.py'),
+                config_args=['--cmd', hello_program.path],
+                valid_isas=(isa.upper(),),
+        )

@@ -1,6 +1,4 @@
-# -*- mode:python -*-
-
-# Copyright (c) 2016 Georgia Institute of Technology.
+# Copyright (c) 2017 Mark D. Hill and David A. Wood
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,15 +24,21 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Tushar Krishna
+# Authors: Sean Wilson
 
-Import('*')
 
-if env['PROTOCOL'] == 'None':
-    Return()
+from .state import *
+from .runner import *
+from .test import *
+from .suite import *
+from .loader import *
+from .fixture import *
+from .config import *
+from main import main
 
-SimObject('GarnetSyntheticTraffic.py')
+#TODO Remove this awkward bootstrap
+#FIXME
+from gem5 import *
 
-Source('GarnetSyntheticTraffic.cc')
-
-DebugFlag('GarnetSyntheticTraffic')
+#TODO Remove this as an export, users should getcwd from os
+from os import getcwd

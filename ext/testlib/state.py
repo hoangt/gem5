@@ -1,6 +1,4 @@
-# -*- mode:python -*-
-
-# Copyright (c) 2016 Georgia Institute of Technology.
+# Copyright (c) 2017 Mark D. Hill and David A. Wood
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -13,8 +11,6 @@
 # neither the name of the copyright holders nor the names of its
 # contributors may be used to endorse or promote products derived from
 # this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
 # A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
@@ -26,15 +22,42 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Tushar Krishna
+# Authors: Sean Wilson
 
-Import('*')
+class Result:
+    enums = '''
+        NotRun
+        Skipped
+        Passed
+        Failed
+        Errored
+    '''.split()
+    for idx, enum in enumerate(enums):
+        locals()[enum] = idx
 
-if env['PROTOCOL'] == 'None':
-    Return()
+    @classmethod
+    def name(cls, enum):
+        return cls.enums[enum]
 
-SimObject('GarnetSyntheticTraffic.py')
+    def __init__(self, value, reason=None):
+        self.value = value
+        self.reason = reason
 
-Source('GarnetSyntheticTraffic.cc')
+    def __str__(self):
+        return self.name(self.value)
 
-DebugFlag('GarnetSyntheticTraffic')
+class Status:
+    enums = '''
+        Unscheduled
+        Building
+        Running
+        TearingDown
+        Complete
+        Avoided
+    '''.split()
+    for idx, enum in enumerate(enums):
+        locals()[enum] = idx
+
+    @classmethod
+    def name(cls, enum):
+        return cls.enums[enum]

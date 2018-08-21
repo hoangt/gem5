@@ -1,6 +1,4 @@
-# -*- mode:python -*-
-
-# Copyright (c) 2016 Georgia Institute of Technology.
+# Copyright (c) 2017 Mark D. Hill and David A. Wood
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,15 +24,27 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Tushar Krishna
+# Authors: Sean Wilson
 
-Import('*')
+'''
+Test file for the util m5 exit assembly instruction.
+'''
+import re
+import os
+from testlib import *
 
-if env['PROTOCOL'] == 'None':
-    Return()
+m5_exit_regex = re.compile(
+r'Exiting @ tick \d* because m5_exit instruction encountered'
+)
 
-SimObject('GarnetSyntheticTraffic.py')
+test_program = DownloadedProgram('m5-exit/bin/x86/linux/', 'm5_exit')
 
-Source('GarnetSyntheticTraffic.cc')
-
-DebugFlag('GarnetSyntheticTraffic')
+a = verifier.MatchRegex(m5_exit_regex)
+gem5_verify_config(
+    name='m5_exit_test',
+    verifiers=[a],
+    fixtures=(test_program,),
+    config=os.path.join(config.base_dir, 'configs', 'example','se.py'),
+    config_args=['--cmd', test_program.path],
+    valid_isas=('X86',)
+)
