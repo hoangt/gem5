@@ -28,15 +28,17 @@
  */
 
 #include "base/logging.hh"
+#include "systemc/core/module.hh"
 #include "systemc/ext/core/sc_export.hh"
 
 namespace sc_core
 {
 
-void
-sc_export_base::warn_unimpl(const char *func) const
+sc_export_base::sc_export_base(const char *n) : sc_object(n)
 {
-    warn("%s not implemented.\n", func);
+    ::sc_gem5::Module *m = ::sc_gem5::currentModule();
+    m->exports.push_back(this);
 }
+sc_export_base::~sc_export_base() {}
 
 } // namespace sc_core

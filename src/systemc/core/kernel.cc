@@ -29,17 +29,167 @@
 
 #include "systemc/core/kernel.hh"
 
-namespace SystemC
+#include "base/logging.hh"
+#include "systemc/core/channel.hh"
+#include "systemc/core/module.hh"
+#include "systemc/core/scheduler.hh"
+
+namespace sc_gem5
 {
 
-Kernel::Kernel(Params *params) : SimObject(params)
+namespace
 {
+
+bool scMainDone = false;
+bool stopAfterCallbacks = false;
+bool startComplete = false;
+bool endComplete = false;
+
+sc_core::sc_status _status = sc_core::SC_ELABORATION;
+
+} // anonymous namespace
+
+bool Kernel::startOfSimulationComplete() { return startComplete; }
+bool Kernel::endOfSimulationComplete() { return endComplete; }
+
+bool Kernel::scMainFinished() { return scMainDone; }
+void Kernel::scMainFinished(bool finished) { scMainDone = finished; }
+
+sc_core::sc_status Kernel::status() { return _status; }
+void Kernel::status(sc_core::sc_status s) { _status = s; }
+
+Kernel::Kernel(Params *params) :
+    SimObject(params), t0Event(this, false, EventBase::Default_Pri - 1)
+{
+    // Install ourselves as the scheduler's event manager.
+    ::sc_gem5::scheduler.setEventQueue(eventQueue());
 }
 
-} // namespace SystemC
+void
+Kernel::init()
+{
+    if (scMainDone)
+        return;
 
-SystemC::Kernel *
+    if (stopAfterCallbacks)
+        fatal("Simulation called sc_stop during elaboration.\n");
+
+    status(::sc_core::SC_BEFORE_END_OF_ELABORATION);
+    for (auto m: sc_gem5::allModules) {
+        callbackModule(m);
+        m->sc_mod()->before_end_of_elaboration();
+        for (auto p: m->ports)
+            p->before_end_of_elaboration();
+        for (auto e: m->exports)
+            e->before_end_of_elaboration();
+    }
+    callbackModule(nullptr);
+    for (auto c: sc_gem5::allChannels)
+        c->sc_chan()->before_end_of_elaboration();
+
+    if (stopAfterCallbacks)
+        stopWork();
+}
+
+void
+Kernel::regStats()
+{
+    if (scMainDone)
+        return;
+
+    for (auto m: sc_gem5::allModules)
+        for (auto p: m->ports)
+            p->_gem5Finalize();
+
+    status(::sc_core::SC_END_OF_ELABORATION);
+    for (auto m: sc_gem5::allModules) {
+        m->sc_mod()->end_of_elaboration();
+        for (auto p: m->ports)
+            p->end_of_elaboration();
+        for (auto e: m->exports)
+            e->end_of_elaboration();
+    }
+    for (auto c: sc_gem5::allChannels)
+        c->sc_chan()->end_of_elaboration();
+
+    if (stopAfterCallbacks)
+        stopWork();
+}
+
+void
+Kernel::startup()
+{
+    if (scMainDone)
+        return;
+
+    status(::sc_core::SC_START_OF_SIMULATION);
+    for (auto m: sc_gem5::allModules) {
+        m->sc_mod()->start_of_simulation();
+        for (auto p: m->ports)
+            p->start_of_simulation();
+        for (auto e: m->exports)
+            e->start_of_simulation();
+    }
+    for (auto c: sc_gem5::allChannels)
+        c->sc_chan()->start_of_simulation();
+
+    startComplete = true;
+
+    if (stopAfterCallbacks)
+        stopWork();
+
+    kernel->status(::sc_core::SC_RUNNING);
+
+    schedule(t0Event, curTick());
+    // Run update once before the event queue starts.
+    ::sc_gem5::scheduler.update();
+}
+
+void
+Kernel::stop()
+{
+    if (status() < ::sc_core::SC_RUNNING)
+        stopAfterCallbacks = true;
+    else
+        stopWork();
+}
+
+void
+Kernel::stopWork()
+{
+    status(::sc_core::SC_END_OF_SIMULATION);
+    for (auto m: sc_gem5::allModules) {
+        m->sc_mod()->end_of_simulation();
+        for (auto p: m->ports)
+            p->end_of_simulation();
+        for (auto e: m->exports)
+            e->end_of_simulation();
+    }
+    for (auto c: sc_gem5::allChannels)
+        c->sc_chan()->end_of_simulation();
+
+    endComplete = true;
+
+    status(::sc_core::SC_STOPPED);
+}
+
+void
+Kernel::t0Handler()
+{
+    ::sc_gem5::scheduler.initPhase();
+
+    status(::sc_core::SC_RUNNING);
+}
+
+Kernel *kernel;
+
+} // namespace sc_gem5
+
+sc_gem5::Kernel *
 SystemC_KernelParams::create()
 {
-    return new SystemC::Kernel(this);
+    panic_if(sc_gem5::kernel,
+            "Only one systemc kernel object may be defined.\n");
+    sc_gem5::kernel = new sc_gem5::Kernel(this);
+    return sc_gem5::kernel;
 }

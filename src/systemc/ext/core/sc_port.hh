@@ -30,8 +30,20 @@
 #ifndef __SYSTEMC_EXT_CORE_SC_PORT_HH__
 #define __SYSTEMC_EXT_CORE_SC_PORT_HH__
 
+#include <vector>
+
+#include "../utils/sc_report_handler.hh"
 #include "sc_module.hh" // for sc_gen_unique_name
 #include "sc_object.hh"
+
+namespace sc_gem5
+{
+
+class BindInfo;
+class Module;
+class PendingSensitivityPort;
+
+};
 
 namespace sc_core
 {
@@ -48,109 +60,144 @@ enum sc_port_policy
 class sc_port_base : public sc_object
 {
   public:
-    sc_port_base(const char *name, int n, sc_port_policy p) : sc_object(name)
-    {}
+    sc_port_base(const char *name, int n, sc_port_policy p);
 
     void warn_unimpl(const char *func) const;
+
+    int maxSize() const;
+    int size() const;
 
   protected:
     // Implementation defined, but depended on by the tests.
     void bind(sc_interface &);
     void bind(sc_port_base &);
+
+    friend class ::sc_gem5::Module;
+
+    // Implementation defined, but depended on by the tests.
+    virtual int vbind(sc_interface &) = 0;
+    virtual int vbind(sc_port_base &) = 0;
+
+    virtual void before_end_of_elaboration() = 0;
+    virtual void end_of_elaboration() = 0;
+    virtual void start_of_simulation() = 0;
+    virtual void end_of_simulation() = 0;
+
+  private:
+    friend class ::sc_gem5::PendingSensitivityPort;
+    friend class ::sc_gem5::Kernel;
+
+    void _gem5Finalize();
+
+    virtual sc_interface *_gem5Interface(int n) const = 0;
+    virtual void _gem5AddInterface(sc_interface *i) = 0;
+
+    std::vector<::sc_gem5::BindInfo *> _gem5BindInfo;
+    int _maxSize;
+    int _size;
+    bool finalized;
 };
 
 template <class IF>
 class sc_port_b : public sc_port_base
 {
   public:
-    void
-    operator () (IF &)
-    {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-    }
+    void operator () (IF &i) { bind(i); }
+    void operator () (sc_port_b<IF> &p) { bind(p); }
 
-    void
-    operator () (sc_port_b<IF> &)
-    {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-    }
-
-    virtual void
-    bind(IF &)
-    {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-    }
-
-    virtual void
-    bind(sc_port_b<IF> &)
-    {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-    }
-
-    int
-    size() const
-    {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        return 0;
-    }
+    virtual void bind(IF &i) { sc_port_base::bind(i); }
+    virtual void bind(sc_port_b<IF> &p) { sc_port_base::bind(p); }
 
     IF *
     operator -> ()
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        return (IF *)nullptr;
+        sc_assert(!_interfaces.empty());
+        return _interfaces[0];
     }
-
     const IF *
     operator -> () const
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        return (IF *)nullptr;
+        sc_assert(!_interfaces.empty());
+        return _interfaces[0];
     }
 
     IF *
-    operator [] (int)
+    operator [] (int n)
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        return (IF *)nullptr;
+        sc_assert(_interfaces.size() > n);
+        return _interfaces[n];
     }
-
     const IF *
-    operator [] (int) const
+    operator [] (int n) const
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        return (IF *)nullptr;
+        sc_assert(_interfaces.size() > n);
+        return _interfaces[n];
     }
 
-    virtual sc_interface *
+    sc_interface *
     get_interface()
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        return (sc_interface *)nullptr;
+        sc_assert(!_interfaces.empty());
+        return _interfaces[0];
     }
-
-    virtual const sc_interface *
+    const sc_interface *
     get_interface() const
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        return (sc_interface *)nullptr;
+        sc_assert(!_interfaces.empty());
+        return _interfaces[0];
     }
 
   protected:
-    virtual void before_end_of_elaboration() {}
-    virtual void end_of_elaboration() {}
-    virtual void start_of_elaboration() {}
-    virtual void end_of_simulation() {}
+    void before_end_of_elaboration() {}
+    void end_of_elaboration() {}
+    void start_of_simulation() {}
+    void end_of_simulation() {}
 
     explicit sc_port_b(int n, sc_port_policy p) :
-            sc_port_base(sc_gen_unique_name("sc_port"), n, p)
+            sc_port_base(sc_gen_unique_name("port"), n, p)
     {}
     sc_port_b(const char *name, int n, sc_port_policy p) :
             sc_port_base(name, n, p)
     {}
     virtual ~sc_port_b() {}
 
+    // Implementation defined, but depended on by the tests.
+    int
+    vbind(sc_interface &i)
+    {
+        IF *interface = dynamic_cast<IF *>(&i);
+        if (!interface)
+            return 2;
+        sc_port_base::bind(*interface);
+        return 0;
+    }
+    int
+    vbind(sc_port_base &pb)
+    {
+        sc_port_b<IF> *p = dynamic_cast<sc_port_b<IF> *>(&pb);
+        if (!p)
+            return 2;
+        sc_port_base::bind(*p);
+        return 0;
+    }
+
   private:
+    std::vector<IF *> _interfaces;
+
+    sc_interface *
+    _gem5Interface(int n) const
+    {
+        sc_assert(_interfaces.size() > n);
+        return _interfaces[n];
+    }
+    void
+    _gem5AddInterface(sc_interface *i)
+    {
+        IF *interface = dynamic_cast<IF *>(i);
+        sc_assert(interface);
+        _interfaces.push_back(interface);
+    }
+
     // Disabled
     sc_port_b() {}
     sc_port_b(const sc_port_b<IF> &) {}

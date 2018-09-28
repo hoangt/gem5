@@ -27,9 +27,10 @@
 
 from __future__ import print_function
 
-import logging
-
+import argparse
 import m5
+import os
+import re
 
 from m5.objects import SystemC_Kernel, Root
 
@@ -38,9 +39,26 @@ from m5.objects import SystemC_Kernel, Root
 kernel = SystemC_Kernel()
 root = Root(full_system=True, systemc_kernel=kernel)
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--working-dir')
+
+args = parser.parse_args()
+if args.working_dir:
+    os.chdir(args.working_dir)
+
 kernel.sc_main("Hello", "World");
 
 m5.instantiate(None)
 
 cause = m5.simulate(m5.MaxTick).getCause()
-logging.info('Exiting @ tick %i because %s', m5.curTick(), cause)
+
+result = kernel.sc_main_result()
+if result.code != 0:
+    # Arguably this should make gem5 fail, but some tests purposefully
+    # generate errors, and as long as their output matches that's still
+    # considered correct. A "real" systemc config should expect sc_main
+    # (if present) not to fail.
+    scrubbed = re.sub(r'In file: .*$',
+            'In file: <removed by verify.pl>',
+            result.message)
+    print('\n' + scrubbed)

@@ -461,7 +461,7 @@ namespace ArmISA
                     return INTREG_SP0;
                   default:
                     panic("Invalid exception level");
-                    break;
+                    return 0;  // Never happens.
                 }
             } else {
                 return flattenIntRegModeIndex(reg);
@@ -659,7 +659,7 @@ namespace ArmISA
             UNSERIALIZE_SCALAR(physAddrRange64);
         }
 
-        void startup(ThreadContext *tc) {}
+        void startup(ThreadContext *tc);
 
         Enums::DecoderFlavour decoderFlavour() const { return _decoderFlavour; }
 

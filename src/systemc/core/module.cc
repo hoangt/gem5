@@ -29,42 +29,110 @@
 
 #include "systemc/core/module.hh"
 
-#include <list>
+#include <cassert>
 
 #include "base/logging.hh"
+#include "systemc/ext/core/sc_port.hh"
+#include "systemc/ext/utils/sc_report_handler.hh"
 
-namespace SystemC
+namespace sc_gem5
 {
 
 namespace
 {
 
 std::list<Module *> _modules;
+Module *_new_module;
 
-Module *_top_module = nullptr;
+Module *_callbackModule = nullptr;
 
 } // anonymous namespace
 
-void
-Module::push()
+Module::Module(const char *name) : _name(name), _sc_mod(nullptr), _obj(nullptr)
 {
-    if (!_top_module)
-        _top_module = this;
+    panic_if(_new_module, "Previous module not finished.\n");
+    _new_module = this;
+}
+
+Module::~Module()
+{
+    if (_new_module == this) {
+        // Aborted module construction?
+        _new_module = nullptr;
+    }
+    allModules.remove(this);
+}
+
+void
+Module::finish(Object *this_obj)
+{
+    assert(!_obj);
+    _obj = this_obj;
     _modules.push_back(this);
+    _new_module = nullptr;
+    // This is called from the constructor of this_obj, so it can't use
+    // dynamic cast.
+    sc_mod(static_cast<::sc_core::sc_module *>(this_obj->sc_obj()));
+    allModules.emplace_back(this);
 }
 
 void
 Module::pop()
 {
-    panic_if(_modules.size(), "Popping from empty module list.\n");
+    panic_if(!_modules.size(), "Popping from empty module list.\n");
     panic_if(_modules.back() != this,
             "Popping module which isn't at the end of the module list.\n");
+    panic_if(_new_module, "Pop with unfinished module.\n");
+    _modules.pop_back();
+}
+
+void
+Module::bindPorts(std::vector<const ::sc_core::sc_bind_proxy *> &proxies)
+{
+    panic_if(proxies.size() > ports.size(),
+            "Trying to bind %d interfaces/ports to %d ports.\n",
+            proxies.size(), ports.size());
+
+    auto proxyIt = proxies.begin();
+    auto portIt = ports.begin();
+    for (; proxyIt != proxies.end(); proxyIt++, portIt++) {
+        auto proxy = *proxyIt;
+        auto port = *portIt;
+        if (proxy->interface())
+            port->vbind(*proxy->interface());
+        else
+            port->vbind(*proxy->port());
+    }
 }
 
 Module *
-topModule()
+currentModule()
 {
-    return _top_module;
+    if (_modules.empty())
+        return nullptr;
+    return _modules.back();
 }
 
-} // namespace SystemC
+Module *
+newModuleChecked()
+{
+    if (!_new_module) {
+        SC_REPORT_ERROR("(E533) module name stack is empty: "
+                "did you forget to add a sc_module_name parameter to "
+                "your module constructor?", nullptr);
+    }
+    return _new_module;
+}
+
+Module *
+newModule()
+{
+    return _new_module;
+}
+
+void callbackModule(Module *m) { _callbackModule = m; }
+Module *callbackModule() { return _callbackModule; }
+
+std::list<Module *> allModules;
+
+} // namespace sc_gem5

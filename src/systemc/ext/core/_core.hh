@@ -34,6 +34,7 @@
 #include "sc_event.hh"
 #include "sc_export.hh"
 #include "sc_interface.hh"
+#include "sc_join.hh"
 #include "sc_main.hh"
 #include "sc_module.hh"
 #include "sc_module_name.hh"
