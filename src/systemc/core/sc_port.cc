@@ -28,18 +28,57 @@
  */
 
 #include "base/logging.hh"
-#include "systemc/core/bindinfo.hh"
 #include "systemc/core/module.hh"
+#include "systemc/core/port.hh"
+#include "systemc/core/scheduler.hh"
+#include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_port.hh"
 
 namespace sc_core
 {
 
-sc_port_base::sc_port_base(const char *name, int n, sc_port_policy p) :
-    sc_object(name), _maxSize(n), _size(0), finalized(false)
+namespace
 {
+
+void
+reportError(const char *id, const char *add_msg,
+        const char *name, const char *kind)
+{
+    std::string msg;
+    if (add_msg)
+        msg = csprintf("%s: port '%s' (%s)", add_msg, name, kind);
+    else
+        msg = csprintf("port '%s' (%s)", name, kind);
+
+    SC_REPORT_ERROR(id, msg.c_str());
+}
+
+}
+
+sc_port_base::sc_port_base(const char *name, int n, sc_port_policy p) :
+    sc_object(name), _gem5Port(new ::sc_gem5::Port(this, n))
+{
+    if (sc_is_running()) {
+        reportError("(E110) insert port failed", "simulation running",
+                name, kind());
+    }
+    if (::sc_gem5::scheduler.elaborationDone()) {
+        reportError("(E110) insert port failed", "elaboration done",
+                name, kind());
+    }
+
     ::sc_gem5::Module *m = ::sc_gem5::currentModule();
-    m->ports.push_back(this);
+    if (!m) {
+        reportError("(E100) port specified outside of module",
+                nullptr, name, kind());
+    } else {
+        m->ports.push_back(this);
+    }
+}
+
+sc_port_base::~sc_port_base()
+{
+    delete _gem5Port;
 }
 
 void
@@ -48,45 +87,10 @@ sc_port_base::warn_unimpl(const char *func) const
     warn("%s not implemented.\n", func);
 }
 
-int sc_port_base::maxSize() const { return _maxSize; }
-int sc_port_base::size() const { return _size; }
+int sc_port_base::maxSize() const { return _gem5Port->maxSize(); }
+int sc_port_base::size() const { return _gem5Port->size(); }
 
-void
-sc_port_base::bind(sc_interface &i)
-{
-    _gem5BindInfo.push_back(new ::sc_gem5::BindInfo(&i));
-}
-
-void
-sc_port_base::bind(sc_port_base &p)
-{
-    _gem5BindInfo.push_back(new ::sc_gem5::BindInfo(&p));
-}
-
-void
-sc_port_base::_gem5Finalize()
-{
-    if (finalized)
-        return;
-    finalized = true;
-
-    for (auto &bi: _gem5BindInfo) {
-        if (bi->interface) {
-            _size++;
-            _gem5AddInterface(bi->interface);
-        } else {
-            sc_port_base *port = bi->port;
-            port->_gem5Finalize();
-            int size = port->size();
-            for (int i = 0; i < size; i++) {
-                _size++;
-                _gem5AddInterface(port->_gem5Interface(i));
-            }
-        }
-        delete bi;
-    }
-
-    _gem5BindInfo.clear();
-}
+void sc_port_base::bind(sc_interface &i) { _gem5Port->bind(&i); }
+void sc_port_base::bind(sc_port_base &p) { _gem5Port->bind(&p); }
 
 } // namespace sc_core

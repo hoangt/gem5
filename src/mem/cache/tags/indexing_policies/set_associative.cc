@@ -1,6 +1,7 @@
 /*
- * Copyright (c) 2012-2013 ARM Limited
- * All rights reserved
+ * Copyright (c) 2018 Inria
+ * Copyright (c) 2012-2014,2017 ARM Limited
+ * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
  * not be construed as granting a license to any other intellectual
@@ -11,7 +12,7 @@
  * unmodified and in its entirety in all distributions of the software,
  * modified or unmodified, in source code or in binary form.
  *
- * Copyright (c) 2007 The Regents of The University of Michigan
+ * Copyright (c) 2003-2005,2014 The Regents of The University of Michigan
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,47 +37,46 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Authors: Daniel Carvalho
+ *          Erik Hallnor
  */
 
-#include "mem/cache/blk.hh"
+/**
+ * @file
+ * Definitions of a set associative indexing policy.
+ */
 
-#include "base/cprintf.hh"
+#include "mem/cache/tags/indexing_policies/set_associative.hh"
 
-void
-CacheBlk::insert(const Addr tag, const bool is_secure,
-                 const int src_master_ID, const uint32_t task_ID)
+#include "mem/cache/replacement_policies/replaceable_entry.hh"
+
+SetAssociative::SetAssociative(const Params *p)
+    : BaseIndexingPolicy(p)
 {
-    // Set block tag
-    this->tag = tag;
-
-    // Set source requestor ID
-    srcMasterId = src_master_ID;
-
-    // Set task ID
-    task_id = task_ID;
-
-    // Set insertion tick as current tick
-    tickInserted = curTick();
-
-    // Insertion counts as a reference to the block
-    refCount = 1;
-
-    // Set secure state
-    if (is_secure) {
-        status = BlkSecure;
-    } else {
-        status = 0;
-    }
 }
 
-void
-CacheBlkPrintWrapper::print(std::ostream &os, int verbosity,
-                            const std::string &prefix) const
+uint32_t
+SetAssociative::extractSet(const Addr addr) const
 {
-    ccprintf(os, "%sblk %c%c%c%c\n", prefix,
-             blk->isValid()    ? 'V' : '-',
-             blk->isWritable() ? 'E' : '-',
-             blk->isDirty()    ? 'M' : '-',
-             blk->isSecure()   ? 'S' : '-');
+    return (addr >> setShift) & setMask;
 }
 
+Addr
+SetAssociative::regenerateAddr(const Addr tag, const ReplaceableEntry* entry)
+                                                                        const
+{
+    return (tag << tagShift) | (entry->getSet() << setShift);
+}
+
+std::vector<ReplaceableEntry*>
+SetAssociative::getPossibleEntries(const Addr addr) const
+{
+    return sets[extractSet(addr)];
+}
+
+SetAssociative*
+SetAssociativeParams::create()
+{
+    return new SetAssociative(this);
+}

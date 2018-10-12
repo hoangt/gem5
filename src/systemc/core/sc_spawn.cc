@@ -31,6 +31,7 @@
 #include "systemc/core/process.hh"
 #include "systemc/core/process_types.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_module.hh"
 #include "systemc/ext/core/sc_spawn.hh"
 
@@ -61,31 +62,40 @@ spawnWork(ProcessFuncWrapper *func, const char *name,
 
     Process *proc;
     if (method)
-        proc = new Method(name, func, true);
+        proc = new Method(name, func);
     else
-        proc = new Thread(name, func, true);
+        proc = new Thread(name, func);
+
+    proc->dontInitialize(dontInitialize);
 
     if (opts) {
         for (auto e: opts->_events)
-            proc->addStatic(new PendingSensitivityEvent(proc, e));
+            newStaticSensitivityEvent(proc, e);
 
         for (auto p: opts->_ports)
-            proc->addStatic(new PendingSensitivityPort(proc, p));
+            newStaticSensitivityPort(proc, p);
 
         for (auto e: opts->_exports)
-            proc->addStatic(new PendingSensitivityExport(proc, e));
+            newStaticSensitivityExport(proc, e);
 
         for (auto i: opts->_interfaces)
-            proc->addStatic(new PendingSensitivityInterface(proc, i));
+            newStaticSensitivityInterface(proc, i);
 
         for (auto f: opts->_finders)
-            proc->addStatic(new PendingSensitivityFinder(proc, f));
+            newStaticSensitivityFinder(proc, f);
+    }
+
+    if (opts && opts->_dontInitialize &&
+            opts->_events.empty() && opts->_ports.empty() &&
+            opts->_exports.empty() && opts->_interfaces.empty() &&
+            opts->_finders.empty()) {
+        SC_REPORT_WARNING(
+                "(W558) disable() or dont_initialize() called on process "
+                "with no static sensitivity, it will be orphaned",
+                proc->name());
     }
 
     scheduler.reg(proc);
-
-    if (dontInitialize)
-        scheduler.dontInitialize(proc);
 
     return proc;
 }

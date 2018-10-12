@@ -79,6 +79,10 @@ class ScMainFiber : public Fiber
             } catch (const sc_report &r) {
                 // There was an exception nobody caught.
                 resultStr = r.what();
+            } catch (...) {
+                // There was some other type of exception we need to wrap.
+                const sc_report *r = ::sc_gem5::reportifyException();
+                resultStr = r->what();
             }
             ::sc_gem5::Kernel::scMainFinished(true);
             ::sc_gem5::scheduler.clear();
@@ -222,6 +226,16 @@ sc_get_stop_mode()
 void
 sc_stop()
 {
+    static bool stop_called = false;
+    if (stop_called) {
+        static bool stop_warned = false;
+        if (!stop_warned)
+            SC_REPORT_WARNING("(W545) sc_stop has already been called", "");
+        stop_warned = true;
+        return;
+    }
+    stop_called = true;
+
     if (::sc_gem5::Kernel::status() == SC_STOPPED)
         return;
 

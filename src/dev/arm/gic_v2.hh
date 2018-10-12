@@ -142,6 +142,12 @@ class GicV2 : public BaseGic, public BaseGicRegisters
         Bitfield<12,10> cpu_id;
     EndBitUnion(IAR)
 
+    BitUnion32(CTLR)
+        Bitfield<3> fiqEn;
+        Bitfield<1> enableGrp1;
+        Bitfield<0> enableGrp0;
+    EndBitUnion(CTLR)
+
   protected: /* Params */
     /** Address range for the distributor interface */
     const AddrRange distRange;
@@ -188,6 +194,10 @@ class GicV2 : public BaseGic, public BaseGicRegisters
          * interrupt active bits for first 32 interrupts, 1b per interrupt */
         uint32_t activeInt;
 
+        /** GICD_IGROUPR0
+         * interrupt group bits for first 32 interrupts, 1b per interrupt */
+        uint32_t intGroup;
+
         /** GICD_IPRIORITYR{0..7}
          * interrupt priority for SGIs and PPIs */
         uint8_t intPriority[SGI_MAX + PPI_MAX];
@@ -196,7 +206,8 @@ class GicV2 : public BaseGic, public BaseGicRegisters
         void unserialize(CheckpointIn &cp) override;
 
         BankedRegs() :
-            intEnabled(0), pendingInt(0), activeInt(0), intPriority {0}
+            intEnabled(0), pendingInt(0), activeInt(0),
+            intGroup(0), intPriority {0}
           {}
     };
     std::vector<BankedRegs*> bankedRegs;
@@ -244,6 +255,20 @@ class GicV2 : public BaseGic, public BaseGicRegisters
         }
     }
 
+    /** GICD_IGROUPR{1..31}
+     * interrupt group bits for global interrupts
+     * 1b per interrupt, 32 bits per word, 31 words */
+    uint32_t intGroup[INT_BITS_MAX-1];
+
+    uint32_t& getIntGroup(ContextID ctx, uint32_t ix) {
+        assert(ix < INT_BITS_MAX);
+        if (ix == 0) {
+            return getBankedRegs(ctx).intGroup;
+        } else {
+            return intGroup[ix - 1];
+        }
+    }
+
     /** read only running priority register, 1 per cpu*/
     uint32_t iccrpr[CPU_MAX];
 
@@ -260,6 +285,16 @@ class GicV2 : public BaseGic, public BaseGicRegisters
         } else {
             return intPriority[ix - (SGI_MAX + PPI_MAX)];
         }
+    }
+
+    /** GICD_ICFGRn
+     * get 2 bit config associated to an interrupt.
+     */
+    uint8_t getIntConfig(ContextID ctx, uint32_t ix) {
+        assert(ix < INT_LINES_MAX);
+        const uint8_t cfg_low = intNumToBit(ix * 2);
+        const uint8_t cfg_hi = cfg_low + 1;
+        return bits(intConfig[intNumToWord(ix * 2)], cfg_hi, cfg_low);
     }
 
     /** GICD_ITARGETSR{8..255}
@@ -291,8 +326,52 @@ class GicV2 : public BaseGic, public BaseGicRegisters
      * and if it is 1:N or N:N */
     uint32_t intConfig[INT_BITS_MAX*2];
 
-    /** CPU enabled */
-    bool cpuEnabled[CPU_MAX];
+    bool isLevelSensitive(ContextID ctx, uint32_t ix) {
+        if (ix == SPURIOUS_INT) {
+            return false;
+        } else {
+            return bits(getIntConfig(ctx, ix), 1) == 0;
+        }
+    }
+
+    bool isGroup0(ContextID ctx, uint32_t int_num) {
+        const uint32_t group_reg = getIntGroup(ctx, intNumToWord(int_num));
+        return bits(group_reg, intNumToBit(int_num));
+    }
+
+    /**
+     * This method checks if an interrupt ID must be signaled or has been
+     * signaled as a FIQ to the cpu. It does that by reading:
+     *
+     * 1) GICD_IGROUPR: controls if the interrupt is part of group0 or
+     * group1. Only group0 interrupts can be signaled as FIQs.
+     *
+     * 2) GICC_CTLR.FIQEn: controls whether the CPU interface signals Group 0
+     * interrupts to a target processor using the FIQ or the IRQ signal
+     */
+    bool isFiq(ContextID ctx, uint32_t int_num) {
+        const bool is_group0 = isGroup0(ctx, int_num);
+        const bool use_fiq = cpuControl[ctx].fiqEn;
+
+        if (is_group0 && use_fiq) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    /** CPU enabled:
+     * Checks if GICC_CTLR.EnableGrp0 or EnableGrp1 are set
+     */
+    bool cpuEnabled(ContextID ctx) const {
+        return cpuControl[ctx].enableGrp0 ||
+               cpuControl[ctx].enableGrp1;
+    }
+
+    /** GICC_CTLR:
+     * CPU interface control register
+     */
+    CTLR cpuControl[CPU_MAX];
 
     /** CPU priority */
     uint8_t cpuPriority[CPU_MAX];
@@ -342,17 +421,23 @@ class GicV2 : public BaseGic, public BaseGicRegisters
     int intNumToWord(int num) const { return num >> 5; }
     int intNumToBit(int num) const { return num % 32; }
 
+    /** Clears a cpu IRQ or FIQ signal */
+    void clearInt(ContextID ctx, uint32_t int_num);
+
     /**
      * Post an interrupt to a CPU with a delay
      */
     void postInt(uint32_t cpu, Tick when);
+    void postFiq(uint32_t cpu, Tick when);
 
     /**
      * Deliver a delayed interrupt to the target CPU
      */
     void postDelayedInt(uint32_t cpu);
+    void postDelayedFiq(uint32_t cpu);
 
     EventFunctionWrapper *postIntEvent[CPU_MAX];
+    EventFunctionWrapper *postFiqEvent[CPU_MAX];
     int pendingDelayedInterrupts;
 
   public:

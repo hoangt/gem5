@@ -32,9 +32,11 @@
 #include "sim/core.hh"
 #include "sim/eventq.hh"
 #include "systemc/core/kernel.hh"
+#include "systemc/core/process_types.hh"
 #include "systemc/core/sched_event.hh"
 #include "systemc/core/scheduler.hh"
 #include "systemc/ext/channel/sc_clock.hh"
+#include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_module.hh" // for sc_gen_unique_name
 
 namespace sc_gem5
@@ -45,30 +47,36 @@ class ClockTick : public ScEvent
   private:
     ::sc_core::sc_clock *clock;
     ::sc_core::sc_time _period;
-    std::string _name;
+    std::string name;
     Process *p;
     ProcessMemberFuncWrapper<::sc_core::sc_clock> funcWrapper;
-    std::string _procName;
 
   public:
     ClockTick(::sc_core::sc_clock *clock, bool to,
             ::sc_core::sc_time _period) :
         ScEvent([this]() { tick(); }),
-        clock(clock), _period(_period), _name(clock->name()),
+        clock(clock), _period(_period), name(clock->basename()), p(nullptr),
         funcWrapper(clock, to ? &::sc_core::sc_clock::tickUp :
                                 &::sc_core::sc_clock::tickDown)
     {
-        _name += (to ? ".up_tick" : ".down_tick");
-        _procName = _name + ".p";
-        p = newMethodProcess(_procName.c_str(), &funcWrapper);
-        scheduler.dontInitialize(p);
+        name += std::string(to ? "_posedge_action" : "_negedge_action");
+        name = ::sc_core::sc_gen_unique_name(name.c_str());
+    }
+
+    void
+    createProcess()
+    {
+        p = new Method(name.c_str(), &funcWrapper, true);
+        p->dontInitialize(true);
+        scheduler.reg(p);
     }
 
     ~ClockTick()
     {
         if (scheduled())
             scheduler.deschedule(this);
-        p->popListNode();
+        if (p)
+            p->popListNode();
     }
 
     void
@@ -147,13 +155,14 @@ bool sc_clock::posedge_first() const { return _posedgeFirst; }
 const sc_time &
 sc_clock::time_stamp()
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return *(const sc_time *)nullptr;
+    return sc_time_stamp();
 }
 
 void
 sc_clock::before_end_of_elaboration()
 {
+    _gem5UpEdge->createProcess();
+    _gem5DownEdge->createProcess();
     if (_posedgeFirst) {
         ::sc_gem5::scheduler.schedule(_gem5UpEdge, _startTime);
         ::sc_gem5::scheduler.schedule(_gem5DownEdge,

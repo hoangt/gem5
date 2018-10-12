@@ -52,6 +52,7 @@
 #include "base/logging.hh"
 #include "debug/Cache.hh"
 #include "debug/CachePort.hh"
+#include "debug/CacheRepl.hh"
 #include "debug/CacheVerbose.hh"
 #include "mem/cache/mshr.hh"
 #include "mem/cache/prefetch/base.hh"
@@ -115,7 +116,7 @@ BaseCache::BaseCache(const BaseCacheParams *p, unsigned blk_size)
 
     tempBlock = new TempCacheBlk(blkSize);
 
-    tags->setCache(this);
+    tags->init(this);
     if (prefetcher)
         prefetcher->setCache(this);
 }
@@ -1237,6 +1238,9 @@ BaseCache::allocateBlock(const PacketPtr pkt, PacketList &writebacks)
     if (!victim)
         return nullptr;
 
+    // Print victim block's information
+    DPRINTF(CacheRepl, "Replacement victim: %s\n", victim->print());
+
     // Check for transient state allocations. If any of the entries listed
     // for eviction has a transient state, the allocation fails
     for (const auto& blk : evict_blks) {
@@ -1280,7 +1284,8 @@ BaseCache::allocateBlock(const PacketPtr pkt, PacketList &writebacks)
     }
 
     // Insert new block at victimized entry
-    tags->insertBlock(pkt, victim);
+    tags->insertBlock(addr, is_secure, pkt->req->masterId(),
+                      pkt->req->taskId(), victim);
 
     return victim;
 }

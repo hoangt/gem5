@@ -145,7 +145,7 @@ typedef NodeList<Channel> ChannelList;
 class Scheduler
 {
   public:
-    typedef std::set<ScEvent *> ScEvents;
+    typedef std::list<ScEvent *> ScEvents;
 
     class TimeSlot : public ::Event
     {
@@ -173,14 +173,19 @@ class Scheduler
     // Register a process with the scheduler.
     void reg(Process *p);
 
-    // Tell the scheduler not to initialize a process.
-    void dontInitialize(Process *p);
-
     // Run the next process, if there is one.
     void yield();
 
     // Put a process on the ready list.
     void ready(Process *p);
+
+    // Mark a process as ready if init is finished, or put it on the list of
+    // processes to be initialized.
+    void resume(Process *p);
+
+    // Remove a process from the ready/init list if it was on one of them, and
+    // return if it was.
+    bool suspend(Process *p);
 
     // Schedule an update for a given channel.
     void requestUpdate(Channel *c);
@@ -189,11 +194,16 @@ class Scheduler
     void
     runNow(Process *p)
     {
+        // This function may put a process on the wrong list, ie a thread
+        // the method list. That's fine since that's just a performance
+        // optimization, and the important thing here is how the processes are
+        // ordered.
+
         // If a process is running, schedule it/us to run again.
         if (_current)
-            readyList.pushFirst(_current);
+            readyListMethods.pushFirst(_current);
         // Schedule p to run first.
-        readyList.pushFirst(p);
+        readyListMethods.pushFirst(p);
         yield();
     }
 
@@ -215,11 +225,12 @@ class Scheduler
     schedule(ScEvent *event, const ::sc_core::sc_time &delay)
     {
         Tick tick = delayed(delay);
-        event->schedule(tick);
+        if (tick < getCurTick())
+            tick = getCurTick();
 
         // Delta notification/timeout.
         if (delay.value() == 0) {
-            deltas.insert(event);
+            event->schedule(deltas, tick);
             scheduleReadyEvent();
             return;
         }
@@ -230,19 +241,18 @@ class Scheduler
             ts = new TimeSlot;
             schedule(ts, tick);
         }
-        ts->events.insert(event);
+        event->schedule(ts->events, tick);
     }
 
     // For descheduling delayed/timed notifications/timeouts.
     void
     deschedule(ScEvent *event)
     {
-        if (event->when() == getCurTick()) {
-            // Attempt to remove from delta notifications.
-            if (deltas.erase(event) == 1) {
-                event->deschedule();
-                return;
-            }
+        ScEvents *on = event->scheduledOn();
+
+        if (on == &deltas) {
+            event->deschedule();
+            return;
         }
 
         // Timed notification/timeout.
@@ -251,7 +261,7 @@ class Scheduler
                 "Descheduling event at time with no events.");
         TimeSlot *ts = tsit->second;
         ScEvents &events = ts->events;
-        assert(events.erase(event));
+        assert(on == &events);
         event->deschedule();
 
         // If no more events are happening at this time slot, get rid of it.
@@ -264,6 +274,7 @@ class Scheduler
     void
     completeTimeSlot(TimeSlot *ts)
     {
+        _changeStamp++;
         assert(ts == timeSlots.begin()->second);
         timeSlots.erase(timeSlots.begin());
         if (!runToTime && starved())
@@ -281,7 +292,8 @@ class Scheduler
     bool
     pendingCurr()
     {
-        return !readyList.empty() || !updateList.empty() || !deltas.empty();
+        return !readyListMethods.empty() || !readyListThreads.empty() ||
+            !updateList.empty() || !deltas.empty();
     }
 
     // Return whether there are pending timed notifications or timeouts.
@@ -303,7 +315,10 @@ class Scheduler
     }
 
     // Run scheduled channel updates.
-    void update();
+    void runUpdate();
+
+    // Run delta events.
+    void runDelta();
 
     void setScMainFiber(Fiber *sc_main) { scMain = sc_main; }
 
@@ -313,8 +328,31 @@ class Scheduler
     void schedulePause();
     void scheduleStop(bool finish_delta);
 
-    bool paused() { return _paused; }
-    bool stopped() { return _stopped; }
+    enum Status
+    {
+        StatusOther = 0,
+        StatusDelta,
+        StatusUpdate,
+        StatusTiming,
+        StatusPaused,
+        StatusStopped
+    };
+
+    bool elaborationDone() { return _elaborationDone; }
+    void elaborationDone(bool b) { _elaborationDone = b; }
+
+    bool paused() { return status() == StatusPaused; }
+    bool stopped() { return status() == StatusStopped; }
+    bool inDelta() { return status() == StatusDelta; }
+    bool inUpdate() { return status() == StatusUpdate; }
+    bool inTiming() { return status() == StatusTiming; }
+
+    uint64_t changeStamp() { return _changeStamp; }
+
+    void throwToScMain(const ::sc_core::sc_report *r=nullptr);
+
+    Status status() { return _status; }
+    void status(Status s) { _status = s; }
 
   private:
     typedef const EventBase::Priority Priority;
@@ -352,6 +390,13 @@ class Scheduler
     ScEvents deltas;
     TimeSlots timeSlots;
 
+    Process *
+    getNextReady()
+    {
+        Process *p = readyListMethods.getNext();
+        return p ? p : readyListThreads.getNext();
+    }
+
     void runReady();
     EventWrapper<Scheduler, &Scheduler::runReady> readyEvent;
     void scheduleReadyEvent();
@@ -360,26 +405,40 @@ class Scheduler
     void stop();
     EventWrapper<Scheduler, &Scheduler::pause> pauseEvent;
     EventWrapper<Scheduler, &Scheduler::stop> stopEvent;
+
     Fiber *scMain;
+    const ::sc_core::sc_report *_throwToScMain;
 
     bool
     starved()
     {
-        return (readyList.empty() && updateList.empty() && deltas.empty() &&
+        return (readyListMethods.empty() && readyListThreads.empty() &&
+                updateList.empty() && deltas.empty() &&
                 (timeSlots.empty() || timeSlots.begin()->first > maxTick) &&
                 initList.empty());
     }
     EventWrapper<Scheduler, &Scheduler::pause> starvationEvent;
     void scheduleStarvationEvent();
 
+    bool _elaborationDone;
     bool _started;
-    bool _paused;
-    bool _stopped;
+    bool _stopNow;
+
+    Status _status;
 
     Tick maxTick;
-    EventWrapper<Scheduler, &Scheduler::pause> maxTickEvent;
+    Tick lastReadyTick;
+    void
+    maxTickFunc()
+    {
+        if (lastReadyTick != getCurTick())
+            _changeStamp++;
+        pause();
+    }
+    EventWrapper<Scheduler, &Scheduler::maxTickFunc> maxTickEvent;
 
     uint64_t _numCycles;
+    uint64_t _changeStamp;
 
     Process *_current;
 
@@ -388,8 +447,9 @@ class Scheduler
     bool runOnce;
 
     ProcessList initList;
-    ProcessList toFinalize;
-    ProcessList readyList;
+
+    ProcessList readyListMethods;
+    ProcessList readyListThreads;
 
     ChannelList updateList;
 
@@ -401,10 +461,24 @@ extern Scheduler scheduler;
 inline void
 Scheduler::TimeSlot::process()
 {
-    for (auto &e: events)
-        e->run();
+    scheduler.status(StatusTiming);
+
+    try {
+        while (!events.empty())
+            events.front()->run();
+    } catch (...) {
+        if (events.empty())
+            scheduler.completeTimeSlot(this);
+        else
+            scheduler.schedule(this);
+        scheduler.throwToScMain();
+    }
+
+    scheduler.status(StatusOther);
     scheduler.completeTimeSlot(this);
 }
+
+const ::sc_core::sc_report *reportifyException();
 
 } // namespace sc_gem5
 

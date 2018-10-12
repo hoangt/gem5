@@ -41,8 +41,8 @@ namespace sc_gem5
 {
 
 class Event;
-class SensitivityEventAndList;
-class SensitivityEventOrList;
+class DynamicSensitivityEventAndList;
+class DynamicSensitivityEventOrList;
 
 }
 
@@ -64,6 +64,7 @@ class sc_event_finder
   public:
     // Should be "implementation defined" but used in the tests.
     virtual const sc_event &find_event(sc_interface *if_p=NULL) const = 0;
+    virtual const sc_port_base *port() const = 0;
 };
 
 template <class IF>
@@ -79,6 +80,8 @@ class sc_event_finder_t : public sc_event_finder
     }
 
     virtual ~sc_event_finder_t() {}
+
+    const sc_port_base *port() const { return _port; }
 
     const sc_event &
     find_event(sc_interface *if_p=NULL) const override
@@ -113,7 +116,7 @@ class sc_event_and_list
 
   private:
     friend class sc_event_and_expr;
-    friend class sc_gem5::SensitivityEventAndList;
+    friend class sc_gem5::DynamicSensitivityEventAndList;
 
     explicit sc_event_and_list(bool auto_delete);
 
@@ -145,7 +148,7 @@ class sc_event_or_list
 
   private:
     friend class sc_event_or_expr;
-    friend class sc_gem5::SensitivityEventOrList;
+    friend class sc_gem5::DynamicSensitivityEventOrList;
 
     explicit sc_event_or_list(bool auto_delete);
 

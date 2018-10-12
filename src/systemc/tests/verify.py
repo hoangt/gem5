@@ -78,6 +78,9 @@ class Test(object):
     def src_dir(self):
         return os.path.join(script_dir, self.path)
 
+    def expected_returncode_file(self):
+        return os.path.join(self.src_dir(), 'expected_returncode')
+
     def golden_dir(self):
         return os.path.join(self.src_dir(), 'golden')
 
@@ -121,6 +124,13 @@ class CompilePhase(TestPhaseBase):
 
     def run(self, tests):
         targets = list([test.full_path() for test in tests])
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('-j', type=int, default=0)
+        args, leftovers = parser.parse_known_args(self.args)
+        if args.j == 0:
+            self.args = ('-j', str(self.main_args.j)) + self.args
+
         scons_args = [ 'USE_SYSTEMC=1' ] + list(self.args) + targets
         scons(*scons_args)
 
@@ -131,9 +141,10 @@ class RunPhase(TestPhaseBase):
     def run(self, tests):
         parser = argparse.ArgumentParser()
         parser.add_argument('--timeout', type=int, metavar='SECONDS',
-                            help='Time limit for each run in seconds.',
-                            default=0)
-        parser.add_argument('-j', type=int, default=1,
+                            help='Time limit for each run in seconds, '
+                            '0 to disable.',
+                            default=60)
+        parser.add_argument('-j', type=int, default=0,
                 help='How many tests to run in parallel.')
         args = parser.parse_args(self.args)
 
@@ -149,7 +160,7 @@ class RunPhase(TestPhaseBase):
                 cmd.extend(timeout_cmd)
             cmd.extend([
                 test.full_path(),
-                '-red', os.path.abspath(test.m5out_dir()),
+                '-rd', os.path.abspath(test.m5out_dir()),
                 '--listener-mode=off',
                 '--quiet',
                 config_path,
@@ -169,11 +180,13 @@ class RunPhase(TestPhaseBase):
             with open(test.returncode_file(), 'w') as rc:
                 rc.write('%d\n' % returncode)
 
+        j = self.main_args.j if args.j == 0 else args.j
+
         runnable = filter(lambda t: not t.compile_only, tests)
-        if args.j == 1:
+        if j == 1:
             map(run_test, runnable)
         else:
-            tp = multiprocessing.pool.ThreadPool(args.j)
+            tp = multiprocessing.pool.ThreadPool(j)
             map(lambda t: tp.apply_async(run_test, (t,)), runnable)
             tp.close()
             tp.join()
@@ -189,8 +202,11 @@ class Checker(object):
             return test_f.read() == ref_f.read()
 
 def tagged_filt(tag, num):
-    return (r'^\n{}: \({}{}\) .*\n(In file: .*\n)?'
+    return (r'\n{}: \({}{}\) .*\n(In file: .*\n)?'
             r'(In process: [\w.]* @ .*\n)?').format(tag, tag[0], num)
+
+def error_filt(num):
+    return tagged_filt('Error', num)
 
 def warning_filt(num):
     return tagged_filt('Warning', num)
@@ -204,6 +220,11 @@ class LogChecker(Checker):
         filts = '|'.join(filts)
         return re.compile(filts, flags=re.MULTILINE)
 
+    # The reporting mechanism will print the actual filename when running in
+    # gem5, and the "golden" output will say "<removed by verify.py>". We want
+    # to strip out both versions to make comparing the output sensible.
+    in_file_filt = r'^In file: ((<removed by verify\.pl>)|([a-zA-Z0-9.:_/]*))$'
+
     ref_filt = merge_filts(
         r'^\nInfo: /OSCI/SystemC: Simulation stopped by user.\n',
         r'^SystemC Simulation\n',
@@ -212,13 +233,17 @@ class LogChecker(Checker):
         r'^\nInfo: \(I804\) /IEEE_Std_1666/deprecated: \n' +
         r'    sc_clock\(const char(.*\n){3}',
         warning_filt(540),
-        warning_filt(569),
         warning_filt(571),
         info_filt(804),
+        in_file_filt,
     )
     test_filt = merge_filts(
         r'^Global frequency set at \d* ticks per second\n',
+        r'^info: Entering event queue @ \d*\.  Starting simulation\.\.\.\n',
+        r'warn: [^(]+\([^)]*\)( \[with [^]]*\])? not implemented\.\n',
+        r'warn: Ignoring request to set stack size\.\n',
         info_filt(804),
+        in_file_filt,
     )
 
     def __init__(self, ref, test, tag, out_dir):
@@ -364,8 +389,8 @@ class VerifyPhase(TestPhaseBase):
                 help='Create a results.json file in the current directory.')
         result_opts.add_argument('--result-file-at', metavar='PATH',
                 help='Create a results json file at the given path.')
-        parser.add_argument('--print-results', action='store_true',
-                help='Print a list of tests that passed or failed')
+        parser.add_argument('--no-print-results', action='store_true',
+                help='Don\'t print a list of tests that passed or failed')
         args = parser.parse_args(self.args)
 
         self.reset_status()
@@ -383,11 +408,19 @@ class VerifyPhase(TestPhaseBase):
             with open(test.returncode_file()) as rc:
                 returncode = int(rc.read())
 
+            expected_returncode = 0
+            if os.path.exists(test.expected_returncode_file()):
+                with open(test.expected_returncode_file()) as erc:
+                    expected_returncode = int(erc.read())
+
             if returncode == 124:
                 self.failed(test, 'time out')
                 continue
-            elif returncode != 0:
-                self.failed(test, 'abort')
+            elif returncode != expected_returncode:
+                if expected_returncode == 0:
+                    self.failed(test, 'abort')
+                else:
+                    self.failed(test, 'missed abort')
                 continue
 
             out_dir = test.m5out_dir()
@@ -429,7 +462,7 @@ class VerifyPhase(TestPhaseBase):
 
             self.passed(test)
 
-        if args.print_results:
+        if not args.no_print_results:
             self.print_results()
 
         self.print_status()
@@ -458,6 +491,10 @@ parser.add_argument('--flavor', choices=['debug', 'opt', 'fast'],
 
 parser.add_argument('--list', action='store_true',
                     help='List the available tests')
+
+parser.add_argument('-j', type=int, default=1,
+                    help='Default level of parallelism, can be overriden '
+                    'for individual stages')
 
 filter_opts = parser.add_mutually_exclusive_group()
 filter_opts.add_argument('--filter', default='True',

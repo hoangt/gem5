@@ -29,7 +29,15 @@
 
 #include "base/logging.hh"
 #include "systemc/core/channel.hh"
+#include "systemc/core/scheduler.hh"
 #include "systemc/ext/core/sc_prim.hh"
+
+namespace sc_gem5
+{
+
+uint64_t getChangeStamp() { return scheduler.changeStamp(); }
+
+} // namespace sc_gem5
 
 namespace sc_core
 {
@@ -133,8 +141,7 @@ sc_prim_channel::next_trigger(
 bool
 sc_prim_channel::timed_out()
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return false;
+    return ::sc_core::timed_out();
 }
 
 void

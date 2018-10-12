@@ -123,7 +123,7 @@ sc_signed::invalid_index(int i) const
     std::stringstream msg;
     msg << "sc_bigint bit selection: index = " << i << " violates "
            "0 <= index <= " << (nbits - 1);
-    SC_REPORT_ERROR("out of bounds", msg.str().c_str());
+    SC_REPORT_ERROR("(E5) out of bounds", msg.str().c_str());
     sc_core::sc_abort(); // can't recover from here
 }
 
@@ -132,10 +132,10 @@ sc_signed::invalid_range(int l, int r) const
 {
     std::stringstream msg;
     msg << "sc_bigint part selection: left = " <<
-           l << ", right = " << r << "\n"
+           l << ", right = " << r << " \n"
            "  violates either (" << (nbits-1) << " >= left >= 0) or "
            "(" << (nbits-1) << " >= right >= 0)";
-    SC_REPORT_ERROR("out of bounds", msg.str().c_str());
+    SC_REPORT_ERROR("(E5) out of bounds", msg.str().c_str());
     sc_core::sc_abort(); // can't recover from here
 }
 

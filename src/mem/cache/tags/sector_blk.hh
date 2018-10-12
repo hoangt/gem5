@@ -33,13 +33,13 @@
  * sequence of cache blocks that may or may not be present in the cache.
  */
 
-#ifndef __MEM_CACHE_SECTOR_BLK_HH__
-#define __MEM_CACHE_SECTOR_BLK_HH__
+#ifndef __MEM_CACHE_TAGS_SECTOR_BLK_HH__
+#define __MEM_CACHE_TAGS_SECTOR_BLK_HH__
 
 #include <vector>
 
-#include "mem/cache/blk.hh"
-#include "mem/cache/replacement_policies/base.hh"
+#include "mem/cache/cache_blk.hh"
+#include "mem/cache/replacement_policies/replaceable_entry.hh"
 
 class SectorBlk;
 
@@ -114,6 +114,13 @@ class SectorSubBlk : public CacheBlk
      */
     void insert(const Addr tag, const bool is_secure, const int src_master_ID,
                 const uint32_t task_ID) override;
+
+    /**
+     * Pretty-print sector offset and other CacheBlk information.
+     *
+     * @return string with basic state information
+     */
+    std::string print() const override;
 };
 
 /**
@@ -168,4 +175,4 @@ class SectorBlk : public ReplaceableEntry
     Addr getTag() const;
 };
 
-#endif //__MEM_CACHE_SECTOR_BLK_HH__
+#endif //__MEM_CACHE_TAGS_SECTOR_BLK_HH__

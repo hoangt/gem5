@@ -61,6 +61,9 @@ Event::Event(sc_core::sc_event *_sc_event, const char *_basename_cstr) :
     else
         parent = nullptr;
 
+    std::string original_name = _basename;
+    _basename = pickUniqueName(parent, _basename);
+
     if (parent) {
         Object *obj = Object::getFromScObject(parent);
         obj->addChildEvent(_sc_event);
@@ -68,10 +71,16 @@ Event::Event(sc_core::sc_event *_sc_event, const char *_basename_cstr) :
         topLevelEvents.emplace(topLevelEvents.end(), _sc_event);
     }
 
-    if (parent)
-        _name = std::string(parent->name()) + "." + _basename;
-    else
-        _name = _basename;
+    std::string path = parent ? (std::string(parent->name()) + ".") : "";
+
+    if (original_name != "" && _basename != original_name) {
+        std::string message = path + original_name +
+            ". Latter declaration will be renamed to " +
+            path + _basename;
+        SC_REPORT_WARNING("(W505) object already exists", message.c_str());
+    }
+
+    _name = path + _basename;
 
     allEvents.emplace(allEvents.end(), _sc_event);
 
@@ -125,15 +134,42 @@ Event::getParentObject() const
 }
 
 void
+Event::notify(StaticSensitivities &senses)
+{
+    for (auto s: senses)
+        s->notify(this);
+}
+
+void
+Event::notify(DynamicSensitivities &senses)
+{
+    int size = senses.size();
+    int pos = 0;
+    while (pos < size) {
+        if (senses[pos]->notify(this))
+            senses[pos] = senses[--size];
+        else
+            pos++;
+    }
+    senses.resize(size);
+}
+
+void
 Event::notify()
 {
+    if (scheduler.inUpdate()) {
+        SC_REPORT_ERROR("(E521) immediate notification is not allowed "
+                "during update phase or elaboration", "");
+    }
+
     // An immediate notification overrides any pending delayed notification.
     if (delayedNotify.scheduled())
         scheduler.deschedule(&delayedNotify);
 
-    auto local_sensitivities = sensitivities;
-    for (auto s: local_sensitivities)
-        s->notify(this);
+    notify(staticSenseMethod);
+    notify(dynamicSenseMethod);
+    notify(staticSenseThread);
+    notify(dynamicSenseThread);
 }
 
 void

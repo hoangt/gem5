@@ -32,6 +32,7 @@
 #include "base/logging.hh"
 #include "systemc/core/channel.hh"
 #include "systemc/core/module.hh"
+#include "systemc/core/port.hh"
 #include "systemc/core/scheduler.hh"
 
 namespace sc_gem5
@@ -75,45 +76,36 @@ Kernel::init()
         fatal("Simulation called sc_stop during elaboration.\n");
 
     status(::sc_core::SC_BEFORE_END_OF_ELABORATION);
-    for (auto m: sc_gem5::allModules) {
-        callbackModule(m);
-        m->sc_mod()->before_end_of_elaboration();
-        for (auto p: m->ports)
-            p->before_end_of_elaboration();
-        for (auto e: m->exports)
-            e->before_end_of_elaboration();
-    }
-    callbackModule(nullptr);
+    for (auto p: allPorts)
+        p->sc_port_base()->before_end_of_elaboration();
+    for (auto m: sc_gem5::allModules)
+        m->beforeEndOfElaboration();
     for (auto c: sc_gem5::allChannels)
         c->sc_chan()->before_end_of_elaboration();
-
-    if (stopAfterCallbacks)
-        stopWork();
 }
 
 void
 Kernel::regStats()
 {
-    if (scMainDone)
+    if (scMainDone || stopAfterCallbacks)
         return;
 
-    for (auto m: sc_gem5::allModules)
-        for (auto p: m->ports)
-            p->_gem5Finalize();
+    try {
+        for (auto p: allPorts)
+            p->finalize();
 
-    status(::sc_core::SC_END_OF_ELABORATION);
-    for (auto m: sc_gem5::allModules) {
-        m->sc_mod()->end_of_elaboration();
-        for (auto p: m->ports)
-            p->end_of_elaboration();
-        for (auto e: m->exports)
-            e->end_of_elaboration();
+        status(::sc_core::SC_END_OF_ELABORATION);
+        for (auto p: allPorts)
+            p->sc_port_base()->end_of_elaboration();
+        for (auto m: sc_gem5::allModules)
+            m->endOfElaboration();
+        for (auto c: sc_gem5::allChannels)
+            c->sc_chan()->end_of_elaboration();
+    } catch (...) {
+        ::sc_gem5::scheduler.throwToScMain();
     }
-    for (auto c: sc_gem5::allChannels)
-        c->sc_chan()->end_of_elaboration();
 
-    if (stopAfterCallbacks)
-        stopWork();
+    ::sc_gem5::scheduler.elaborationDone(true);
 }
 
 void
@@ -122,16 +114,22 @@ Kernel::startup()
     if (scMainDone)
         return;
 
-    status(::sc_core::SC_START_OF_SIMULATION);
-    for (auto m: sc_gem5::allModules) {
-        m->sc_mod()->start_of_simulation();
-        for (auto p: m->ports)
-            p->start_of_simulation();
-        for (auto e: m->exports)
-            e->start_of_simulation();
+    schedule(t0Event, curTick());
+
+    if (stopAfterCallbacks)
+        return;
+
+    try {
+        status(::sc_core::SC_START_OF_SIMULATION);
+        for (auto p: allPorts)
+            p->sc_port_base()->start_of_simulation();
+        for (auto m: sc_gem5::allModules)
+            m->startOfSimulation();
+        for (auto c: sc_gem5::allChannels)
+            c->sc_chan()->start_of_simulation();
+    } catch (...) {
+        ::sc_gem5::scheduler.throwToScMain();
     }
-    for (auto c: sc_gem5::allChannels)
-        c->sc_chan()->start_of_simulation();
 
     startComplete = true;
 
@@ -139,10 +137,6 @@ Kernel::startup()
         stopWork();
 
     kernel->status(::sc_core::SC_RUNNING);
-
-    schedule(t0Event, curTick());
-    // Run update once before the event queue starts.
-    ::sc_gem5::scheduler.update();
 }
 
 void
@@ -158,15 +152,16 @@ void
 Kernel::stopWork()
 {
     status(::sc_core::SC_END_OF_SIMULATION);
-    for (auto m: sc_gem5::allModules) {
-        m->sc_mod()->end_of_simulation();
-        for (auto p: m->ports)
-            p->end_of_simulation();
-        for (auto e: m->exports)
-            e->end_of_simulation();
+    try {
+        for (auto p: allPorts)
+            p->sc_port_base()->end_of_simulation();
+        for (auto m: sc_gem5::allModules)
+            m->endOfSimulation();
+        for (auto c: sc_gem5::allChannels)
+            c->sc_chan()->end_of_simulation();
+    } catch (...) {
+        ::sc_gem5::scheduler.throwToScMain();
     }
-    for (auto c: sc_gem5::allChannels)
-        c->sc_chan()->end_of_simulation();
 
     endComplete = true;
 
@@ -176,9 +171,14 @@ Kernel::stopWork()
 void
 Kernel::t0Handler()
 {
-    ::sc_gem5::scheduler.initPhase();
-
-    status(::sc_core::SC_RUNNING);
+    if (stopAfterCallbacks) {
+        scheduler.clear();
+        ::sc_gem5::scheduler.initPhase();
+        scheduler.scheduleStop(false);
+    } else {
+        ::sc_gem5::scheduler.initPhase();
+        status(::sc_core::SC_RUNNING);
+    }
 }
 
 Kernel *kernel;

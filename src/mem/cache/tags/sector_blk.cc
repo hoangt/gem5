@@ -33,10 +33,11 @@
  * sequence of cache blocks that may or may not be present in the cache.
  */
 
-#include "mem/cache/sector_blk.hh"
+#include "mem/cache/tags/sector_blk.hh"
 
 #include <cassert>
 
+#include "base/cprintf.hh"
 #include "base/logging.hh"
 
 void
@@ -84,6 +85,13 @@ SectorSubBlk::insert(const Addr tag, const bool is_secure,
 
     // Set sector tag
     _sectorBlk->setTag(tag);
+}
+
+std::string
+SectorSubBlk::print() const
+{
+    return csprintf("%s sector offset: %#x", CacheBlk::print(),
+                    getSectorOffset());
 }
 
 bool

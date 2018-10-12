@@ -34,6 +34,8 @@
 #include "sim/eventq.hh"
 #include "systemc/core/kernel.hh"
 #include "systemc/ext/core/sc_main.hh"
+#include "systemc/ext/utils/sc_report.hh"
+#include "systemc/ext/utils/sc_report_handler.hh"
 
 namespace sc_gem5
 {
@@ -42,11 +44,11 @@ Scheduler::Scheduler() :
     eq(nullptr), readyEvent(this, false, ReadyPriority),
     pauseEvent(this, false, PausePriority),
     stopEvent(this, false, StopPriority),
-    scMain(nullptr),
+    scMain(nullptr), _throwToScMain(nullptr),
     starvationEvent(this, false, StarvationPriority),
-    _started(false), _paused(false), _stopped(false),
-    maxTickEvent(this, false, MaxTickPriority),
-    _numCycles(0), _current(nullptr), initDone(false),
+    _elaborationDone(false), _started(false), _stopNow(false),
+    _status(StatusOther), maxTickEvent(this, false, MaxTickPriority),
+    _numCycles(0), _changeStamp(0), _current(nullptr), initDone(false),
     runOnce(false)
 {}
 
@@ -61,15 +63,14 @@ void
 Scheduler::clear()
 {
     // Delta notifications.
-    for (auto &e: deltas)
-        e->deschedule();
-    deltas.clear();
+    while (!deltas.empty())
+        deltas.front()->deschedule();
 
     // Timed notifications.
     for (auto &tsp: timeSlots) {
         TimeSlot *&ts = tsp.second;
-        for (auto &e: ts->events)
-            e->deschedule();
+        while (!ts->events.empty())
+            ts->events.front()->deschedule();
         deschedule(ts);
     }
     timeSlots.clear();
@@ -87,11 +88,11 @@ Scheduler::clear()
         deschedule(&maxTickEvent);
 
     Process *p;
-    while ((p = toFinalize.getNext()))
-        p->popListNode();
     while ((p = initList.getNext()))
         p->popListNode();
-    while ((p = readyList.getNext()))
+    while ((p = readyListMethods.getNext()))
+        p->popListNode();
+    while ((p = readyListThreads.getNext()))
         p->popListNode();
 
     Channel *c;
@@ -102,22 +103,23 @@ Scheduler::clear()
 void
 Scheduler::initPhase()
 {
-    for (Process *p = toFinalize.getNext(); p; p = toFinalize.getNext()) {
-        p->finalize();
-        p->popListNode();
-    }
-
     for (Process *p = initList.getNext(); p; p = initList.getNext()) {
-        p->finalize();
         p->popListNode();
-        p->ready();
+
+        if (p->dontInitialize()) {
+            if (!p->hasStaticSensitivities() && !p->internal()) {
+                SC_REPORT_WARNING(
+                        "(W558) disable() or dont_initialize() called on "
+                        "process with no static sensitivity, it will be "
+                        "orphaned", p->name());
+            }
+        } else {
+            p->ready();
+        }
     }
 
-    update();
-
-    for (auto &e: deltas)
-        e->run();
-    deltas.clear();
+    runUpdate();
+    runDelta();
 
     for (auto ets: eventsToSchedule)
         eq->schedule(ets.first, ets.second);
@@ -130,16 +132,17 @@ Scheduler::initPhase()
     }
 
     initDone = true;
+
+    status(StatusOther);
 }
 
 void
 Scheduler::reg(Process *p)
 {
     if (initDone) {
-        // If we're past initialization, finalize static sensitivity.
-        p->finalize();
-        // Mark the process as ready.
-        p->ready();
+        // If not marked as dontInitialize, mark as ready.
+        if (!p->dontInitialize())
+            p->ready();
     } else {
         // Otherwise, record that this process should be initialized once we
         // get there.
@@ -148,23 +151,10 @@ Scheduler::reg(Process *p)
 }
 
 void
-Scheduler::dontInitialize(Process *p)
-{
-    if (initDone) {
-        // Pop this process off of the ready list.
-        p->popListNode();
-    } else {
-        // Push this process onto the list of processes which still need
-        // their static sensitivity to be finalized. That implicitly pops it
-        // off the list of processes to be initialized/marked ready.
-        toFinalize.pushLast(p);
-    }
-}
-
-void
 Scheduler::yield()
 {
-    _current = readyList.getNext();
+    // Pull a process from the active list.
+    _current = getNextReady();
     if (!_current) {
         // There are no more processes, so return control to evaluate.
         Fiber::primaryFiber()->run();
@@ -176,7 +166,11 @@ Scheduler::yield()
         // If the current process needs to be manually started, start it.
         if (_current && _current->needsStart()) {
             _current->needsStart(false);
-            _current->run();
+            try {
+                _current->run();
+            } catch (...) {
+                throwToScMain();
+            }
         }
     }
     if (_current && _current->excWrapper) {
@@ -191,13 +185,49 @@ Scheduler::yield()
 void
 Scheduler::ready(Process *p)
 {
-    // Clump methods together to minimize context switching.
+    if (_stopNow)
+        return;
+
     if (p->procKind() == ::sc_core::SC_METHOD_PROC_)
-        readyList.pushFirst(p);
+        readyListMethods.pushLast(p);
     else
-        readyList.pushLast(p);
+        readyListThreads.pushLast(p);
 
     scheduleReadyEvent();
+}
+
+void
+Scheduler::resume(Process *p)
+{
+    if (initDone)
+        ready(p);
+    else
+        initList.pushLast(p);
+}
+
+bool
+listContains(ListNode *list, ListNode *target)
+{
+    ListNode *n = list->nextListNode;
+    while (n != list)
+        if (n == target)
+            return true;
+    return false;
+}
+
+bool
+Scheduler::suspend(Process *p)
+{
+    bool was_ready;
+    if (initDone) {
+        // After initialization, check if we're on a ready list.
+        was_ready = (p->nextListNode != nullptr);
+        p->popListNode();
+    } else {
+        // Nothing is ready before init.
+        was_ready = false;
+    }
+    return was_ready;
 }
 
 void
@@ -231,61 +261,85 @@ Scheduler::scheduleStarvationEvent()
 void
 Scheduler::runReady()
 {
-    bool empty = readyList.empty();
+    bool empty = readyListMethods.empty() && readyListThreads.empty();
+    lastReadyTick = getCurTick();
 
     // The evaluation phase.
     do {
         yield();
-    } while (!readyList.empty());
+    } while (getNextReady());
 
-    if (!empty)
+    if (!empty) {
         _numCycles++;
+        _changeStamp++;
+    }
 
-    // The update phase.
-    update();
+    if (_stopNow)
+        return;
 
-    // The delta phase.
-    for (auto &e: deltas)
-        e->run();
-    deltas.clear();
+    runUpdate();
+    runDelta();
 
     if (!runToTime && starved())
         scheduleStarvationEvent();
 
     if (runOnce)
         schedulePause();
+
+    status(StatusOther);
 }
 
 void
-Scheduler::update()
+Scheduler::runUpdate()
 {
-    Channel *channel = updateList.getNext();
-    while (channel) {
-        channel->popListNode();
-        channel->update();
-        channel = updateList.getNext();
+    status(StatusUpdate);
+
+    try {
+        Channel *channel = updateList.getNext();
+        while (channel) {
+            channel->popListNode();
+            channel->update();
+            channel = updateList.getNext();
+        }
+    } catch (...) {
+        throwToScMain();
+    }
+}
+
+void
+Scheduler::runDelta()
+{
+    status(StatusDelta);
+
+    try {
+        while (!deltas.empty())
+            deltas.front()->run();
+    } catch (...) {
+        throwToScMain();
     }
 }
 
 void
 Scheduler::pause()
 {
-    _paused = true;
+    status(StatusPaused);
     kernel->status(::sc_core::SC_PAUSED);
     runOnce = false;
-    scMain->run();
+    if (scMain && !scMain->finished())
+        scMain->run();
 }
 
 void
 Scheduler::stop()
 {
-    _stopped = true;
+    status(StatusStopped);
     kernel->stop();
 
     clear();
 
     runOnce = false;
-    scMain->run();
+    if (scMain && !scMain->finished())
+        scMain->run();
 }
 
 void
@@ -296,11 +350,11 @@ Scheduler::start(Tick max_tick, bool run_to_time)
     scMain = Fiber::currentFiber();
 
     _started = true;
-    _paused = false;
-    _stopped = false;
+    status(StatusOther);
     runToTime = run_to_time;
 
     maxTick = max_tick;
+    lastReadyTick = getCurTick();
 
     if (initDone) {
         if (!runToTime && starved())
@@ -321,6 +375,12 @@ Scheduler::start(Tick max_tick, bool run_to_time)
         deschedule(&maxTickEvent);
     if (starvationEvent.scheduled())
         deschedule(&starvationEvent);
+
+    if (_throwToScMain) {
+        const ::sc_core::sc_report *to_throw = _throwToScMain;
+        _throwToScMain = nullptr;
+        throw *to_throw;
+    }
 }
 
 void
@@ -341,12 +401,23 @@ Scheduler::schedulePause()
 }
 
 void
+Scheduler::throwToScMain(const ::sc_core::sc_report *r)
+{
+    if (!r)
+        r = reportifyException();
+    _throwToScMain = r;
+    status(StatusOther);
+    scMain->run();
+}
+
+void
 Scheduler::scheduleStop(bool finish_delta)
 {
     if (stopEvent.scheduled())
         return;
 
     if (!finish_delta) {
+        _stopNow = true;
         // If we're not supposed to finish the delta cycle, flush all
         // pending activity.
         clear();
@@ -355,5 +426,47 @@ Scheduler::scheduleStop(bool finish_delta)
 }
 
 Scheduler scheduler;
+
+namespace {
+
+void
+throwingReportHandler(const ::sc_core::sc_report &r,
+                      const ::sc_core::sc_actions &)
+{
+    throw r;
+}
+
+} // anonymous namespace
+
+const ::sc_core::sc_report *
+reportifyException()
+{
+    ::sc_core::sc_report_handler_proc old_handler =
+        ::sc_core::sc_report_handler::get_handler();
+    ::sc_core::sc_report_handler::set_handler(&throwingReportHandler);
+
+    try {
+        try {
+            // Rethrow the current exception so we can catch it and throw an
+            // sc_report instead if it's not a type we recognize/can handle.
+            throw;
+        } catch (const ::sc_core::sc_report &) {
+            // It's already a sc_report, so nothing to do.
+            throw;
+        } catch (const ::sc_core::sc_unwind_exception &) {
+            panic("Kill/reset exception escaped a Process::run()");
+        } catch (const std::exception &e) {
+            SC_REPORT_ERROR("uncaught exception", e.what());
+        } catch (const char *msg) {
+            SC_REPORT_ERROR("uncaught exception", msg);
+        } catch (...) {
+            SC_REPORT_ERROR("uncaught exception", "UNKNOWN EXCEPTION");
+        }
+    } catch (const ::sc_core::sc_report &r) {
+        ::sc_core::sc_report_handler::set_handler(old_handler);
+        return &r;
+    }
+    panic("No exception thrown in reportifyException.");
+}
 
 } // namespace sc_gem5

@@ -35,11 +35,13 @@ if env['USE_SYSTEMC']:
     Source('kernel.cc')
     Source('module.cc')
     Source('object.cc')
+    Source('port.cc')
     Source('process.cc')
     Source('process_types.cc')
     Source('python.cc')
     Source('scheduler.cc')
     Source('sched_event.cc')
+    Source('sensitivity.cc')
 
     Source('sc_attr.cc')
     Source('sc_event.cc')

@@ -95,6 +95,7 @@ class sc_module : public sc_object
 {
   public:
     friend class ::sc_gem5::Kernel;
+    friend class ::sc_gem5::Module;
 
     virtual ~sc_module();
 
@@ -177,7 +178,7 @@ class sc_module : public sc_object
     sc_module(const std::string &);
 
     /* Deprecated, but used in the regression tests. */
-    void end_module() {}
+    void end_module();
 
     void reset_signal_is(const sc_in<bool> &, bool);
     void reset_signal_is(const sc_inout<bool> &, bool);
@@ -289,7 +290,8 @@ bool timed_out();
                 #name, new ::sc_gem5::ProcessMemberFuncWrapper< \
                     SC_CURRENT_USER_MODULE>(this, \
                         &SC_CURRENT_USER_MODULE::name)); \
-        this->sensitive << p; \
+        if (p) \
+            this->sensitive << p; \
     }
 #define SC_THREAD(name) \
     { \
@@ -298,7 +300,8 @@ bool timed_out();
                 #name, new ::sc_gem5::ProcessMemberFuncWrapper< \
                     SC_CURRENT_USER_MODULE>(this, \
                         &SC_CURRENT_USER_MODULE::name)); \
-        this->sensitive << p; \
+        if (p) \
+            this->sensitive << p; \
     }
 #define SC_CTHREAD(name, clk) \
     { \
@@ -307,8 +310,8 @@ bool timed_out();
                 #name, new ::sc_gem5::ProcessMemberFuncWrapper< \
                     SC_CURRENT_USER_MODULE>(this, \
                         &SC_CURRENT_USER_MODULE::name)); \
-        this->sensitive << p; \
-        this->sensitive << clk; \
+        if (p) \
+            this->sensitive(p, clk); \
     }
 
 // Nonstandard

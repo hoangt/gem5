@@ -32,8 +32,10 @@
 #include <algorithm>
 
 #include "base/logging.hh"
+#include "systemc/core/event.hh"
 #include "systemc/core/module.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/core/sc_module.hh"
 
 namespace sc_gem5
 {
@@ -67,15 +69,27 @@ popObject(Objects *objects, const std::string &name)
     objects->pop_back();
 }
 
+bool
+nameIsUnique(Objects *objects, Events *events, const std::string &name)
+{
+    for (auto obj: *objects)
+        if (!strcmp(obj->basename(), name.c_str()))
+            return false;
+    for (auto event: *events)
+        if (!strcmp(event->basename(), name.c_str()))
+            return false;
+    return true;
+}
+
 } // anonymous namespace
 
-Object::Object(sc_core::sc_object *_sc_obj) : Object(_sc_obj, "object") {}
+Object::Object(sc_core::sc_object *_sc_obj) : Object(_sc_obj, nullptr) {}
 
 Object::Object(sc_core::sc_object *_sc_obj, const char *obj_name) :
     _sc_obj(_sc_obj), _basename(obj_name ? obj_name : ""), parent(nullptr)
 {
     if (_basename == "")
-        _basename = "object";
+        _basename = ::sc_core::sc_gen_unique_name("object");
 
     Module *p = currentModule();
     if (!p)
@@ -91,23 +105,35 @@ Object::Object(sc_core::sc_object *_sc_obj, const char *obj_name) :
         // We're "within" a parent module, ie we're being created while its
         // constructor or end_of_elaboration callback is running.
         parent = p->obj()->_sc_obj;
-        addObject(&parent->_gem5_object->children, _sc_obj);
     } else if (scheduler.current()) {
         // Our parent is the currently running process.
         parent = scheduler.current();
-    } else {
-        // We're a top level object.
-        addObject(&topLevelObjects, _sc_obj);
     }
+
+    std::string original_name = _basename;
+    _basename = sc_gem5::pickUniqueName(parent, original_name);
+
+    if (parent)
+        addObject(&parent->_gem5_object->children, _sc_obj);
+    else
+        addObject(&topLevelObjects, _sc_obj);
 
     addObject(&allObjects, _sc_obj);
 
-    _name = _basename;
     sc_core::sc_object *sc_p = parent;
+    std::string path = "";
     while (sc_p) {
-        _name = std::string(sc_p->basename()) + std::string(".") + _name;
+        path = std::string(sc_p->basename()) + std::string(".") + path;
         sc_p = sc_p->get_parent_object();
     }
+
+    if (_basename != original_name) {
+        std::string message = path + original_name +
+            ". Latter declaration will be renamed to " +
+            path + _basename;
+        SC_REPORT_WARNING("(W505) object already exists", message.c_str());
+    }
+    _name = path + _basename;
 }
 
 Object::Object(sc_core::sc_object *_sc_obj, const Object &arg) :
@@ -240,6 +266,29 @@ Object::delChildEvent(sc_core::sc_event *e)
     assert(it != events.end());
     std::swap(*it, events.back());
     events.pop_back();
+}
+
+std::string
+Object::pickUniqueName(std::string base)
+{
+    std::string seed = base;
+    while (!nameIsUnique(&children, &events, base))
+        base = ::sc_core::sc_gen_unique_name(seed.c_str());
+
+    return base;
+}
+
+std::string
+pickUniqueName(::sc_core::sc_object *parent, std::string base)
+{
+    if (parent)
+        return Object::getFromScObject(parent)->pickUniqueName(base);
+
+    std::string seed = base;
+    while (!nameIsUnique(&topLevelObjects, &topLevelEvents, base))
+        base = ::sc_core::sc_gen_unique_name(seed.c_str());
+
+    return base;
 }
 
 
