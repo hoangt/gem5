@@ -27,14 +27,24 @@
  * Authors: Gabe Black
  */
 
-#ifndef __SYSTEMC_EXT_UTILS_WARN_UNIMPL_HH__
-#define __SYSTEMC_EXT_UTILS_WARN_UNIMPL_HH__
+#ifndef __SYSTEMC_EXT_DT_FX_MESSAGES_HH__
+#define __SYSTEMC_EXT_DT_FX_MESSAGES_HH__
 
 namespace sc_core
 {
 
-void sc_utils_warn_unimpl(const char *func);
+extern const char SC_ID_INVALID_WL_[];
+extern const char SC_ID_INVALID_N_BITS_[];
+extern const char SC_ID_INVALID_DIV_WL_[];
+extern const char SC_ID_INVALID_CTE_WL_[];
+extern const char SC_ID_INVALID_MAX_WL_[];
+extern const char SC_ID_INVALID_FX_VALUE_[];
+extern const char SC_ID_INVALID_O_MODE_[];
+extern const char SC_ID_OUT_OF_RANGE_[];
+extern const char SC_ID_CONTEXT_BEGIN_FAILED_[];
+extern const char SC_ID_CONTEXT_END_FAILED_[];
+extern const char SC_ID_WRAP_SM_NOT_DEFINED_[];
 
 } // namespace sc_core
 
-#endif  //__SYSTEMC_EXT_UTILS_WARN_UNIMPL_HH__
+#endif // __SYSTEMC_EXT_DT_FX_MESSAGES_HH__

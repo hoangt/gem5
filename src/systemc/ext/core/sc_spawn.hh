@@ -30,6 +30,7 @@
 #ifndef __SYSTEMC_EXT_CORE_SC_SPAWN_HH__
 #define __SYSTEMC_EXT_CORE_SC_SPAWN_HH__
 
+#include <functional>
 #include <vector>
 
 #include "sc_join.hh"
@@ -130,12 +131,25 @@ class sc_spawn_options
     std::vector<sc_interface *> _interfaces;
     std::vector<sc_event_finder *> _finders;
 
+    template <typename T>
+    struct Reset
+    {
+        Reset(T *t, bool v, bool s) : target(t), value(v), sync(s) {}
+
+        T *target;
+        bool value;
+        bool sync;
+    };
+
+    std::vector<Reset<const sc_in<bool> > > _in_resets;
+    std::vector<Reset<const sc_inout<bool> > > _inout_resets;
+    std::vector<Reset<const sc_out<bool> > > _out_resets;
+    std::vector<Reset<const sc_signal_in_if<bool> > > _if_resets;
+
     // Disabled
     sc_spawn_options(const sc_spawn_options &) {}
     sc_spawn_options &operator = (const sc_spawn_options &) { return *this; }
 };
-
-void sc_spawn_warn_unimpl(const char *func);
 
 template <typename T>
 sc_process_handle
@@ -158,10 +172,6 @@ sc_spawn(typename T::result_type *r_p, T object, const char *name_p=nullptr,
     return sc_process_handle() = p;
 }
 
-#define sc_bind boost::bind
-#define sc_ref(r) boost::ref(r)
-#define sc_cref(r) boost::cref(r)
-
 #define SC_FORK \
 { \
     ::sc_core::sc_process_handle forkees[] = {
@@ -183,22 +193,38 @@ sc_spawn(typename T::result_type *r_p, T object, const char *name_p=nullptr,
     join.wait_clocked(); \
 }
 
+// This avoids boost introduces a dependency on c++11. If that's a problem,
+// we could imitate Accellera and pick which one to use on the fly.
+
+template <typename F, typename... Args>
+auto sc_bind(F &&f, Args && ...args) ->
+    decltype(std::bind(std::forward<F>(f), std::forward<Args>(args)...))
+{
+    return std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+}
+
+template <typename T>
+auto sc_ref(T &&v) -> decltype(std::ref(std::forward<T>(v)))
+{
+    return std::ref(std::forward<T>(v));
+}
+
+template <typename T>
+auto sc_cref(T &&v) -> decltype(std::cref(std::forward<T>(v)))
+{
+    return std::cref(std::forward<T>(v));
+}
 
 } // namespace sc_core
+
+using sc_core::sc_bind;
+using sc_core::sc_ref;
+using sc_core::sc_cref;
 
 namespace sc_unnamed
 {
 
-typedef int ImplementationDefined;
-extern ImplementationDefined _1;
-extern ImplementationDefined _2;
-extern ImplementationDefined _3;
-extern ImplementationDefined _4;
-extern ImplementationDefined _5;
-extern ImplementationDefined _6;
-extern ImplementationDefined _7;
-extern ImplementationDefined _8;
-extern ImplementationDefined _9;
+using namespace std::placeholders;
 
 } // namespace sc_unnamed
 

@@ -48,6 +48,8 @@ class Fiber;
 namespace sc_gem5
 {
 
+class TraceFile;
+
 typedef NodeList<Process> ProcessList;
 typedef NodeList<Channel> ChannelList;
 
@@ -207,6 +209,17 @@ class Scheduler
         yield();
     }
 
+    // Run this process at the next opportunity.
+    void
+    runNext(Process *p)
+    {
+        // Like above, it's ok if this isn't a method. Putting it on this list
+        // just gives it priority.
+        readyListMethods.pushFirst(p);
+        if (!inEvaluate())
+            scheduleReadyEvent();
+    }
+
     // Set an event queue for scheduling events.
     void setEventQueue(EventQueue *_eq) { eq = _eq; }
 
@@ -216,8 +229,7 @@ class Scheduler
     Tick
     delayed(const ::sc_core::sc_time &delay)
     {
-        //XXX We're assuming the systemc time resolution is in ps.
-        return getCurTick() + delay.value() * SimClock::Int::ps;
+        return getCurTick() + delay.value();
     }
 
     // For scheduling delayed/timed notifications/timeouts.
@@ -231,7 +243,8 @@ class Scheduler
         // Delta notification/timeout.
         if (delay.value() == 0) {
             event->schedule(deltas, tick);
-            scheduleReadyEvent();
+            if (!inEvaluate() && !inUpdate())
+                scheduleReadyEvent();
             return;
         }
 
@@ -274,11 +287,11 @@ class Scheduler
     void
     completeTimeSlot(TimeSlot *ts)
     {
-        _changeStamp++;
         assert(ts == timeSlots.begin()->second);
         timeSlots.erase(timeSlots.begin());
         if (!runToTime && starved())
             scheduleStarvationEvent();
+        scheduleTimeAdvancesEvent();
     }
 
     // Pending activity ignores gem5 activity, much like how a systemc
@@ -331,8 +344,9 @@ class Scheduler
     enum Status
     {
         StatusOther = 0,
-        StatusDelta,
+        StatusEvaluate,
         StatusUpdate,
+        StatusDelta,
         StatusTiming,
         StatusPaused,
         StatusStopped
@@ -343,16 +357,21 @@ class Scheduler
 
     bool paused() { return status() == StatusPaused; }
     bool stopped() { return status() == StatusStopped; }
-    bool inDelta() { return status() == StatusDelta; }
+    bool inEvaluate() { return status() == StatusEvaluate; }
     bool inUpdate() { return status() == StatusUpdate; }
+    bool inDelta() { return status() == StatusDelta; }
     bool inTiming() { return status() == StatusTiming; }
 
     uint64_t changeStamp() { return _changeStamp; }
+    void stepChangeStamp() { _changeStamp++; }
 
-    void throwToScMain(const ::sc_core::sc_report *r=nullptr);
+    void throwToScMain();
 
     Status status() { return _status; }
     void status(Status s) { _status = s; }
+
+    void registerTraceFile(TraceFile *tf) { traceFiles.insert(tf); }
+    void unregisterTraceFile(TraceFile *tf) { traceFiles.erase(tf); }
 
   private:
     typedef const EventBase::Priority Priority;
@@ -363,6 +382,7 @@ class Scheduler
     static Priority MaxTickPriority = DefaultPriority + 2;
     static Priority ReadyPriority = DefaultPriority + 3;
     static Priority StarvationPriority = ReadyPriority;
+    static Priority TimeAdvancesPriority = EventBase::Maximum_Pri;
 
     EventQueue *eq;
 
@@ -437,6 +457,15 @@ class Scheduler
     }
     EventWrapper<Scheduler, &Scheduler::maxTickFunc> maxTickEvent;
 
+    void timeAdvances() { trace(false); }
+    EventWrapper<Scheduler, &Scheduler::timeAdvances> timeAdvancesEvent;
+    void
+    scheduleTimeAdvancesEvent()
+    {
+        if (!traceFiles.empty() && !timeAdvancesEvent.scheduled())
+            schedule(&timeAdvancesEvent);
+    }
+
     uint64_t _numCycles;
     uint64_t _changeStamp;
 
@@ -454,13 +483,21 @@ class Scheduler
     ChannelList updateList;
 
     std::map<::Event *, Tick> eventsToSchedule;
+
+    std::set<TraceFile *> traceFiles;
+
+    void trace(bool delta);
 };
 
 extern Scheduler scheduler;
 
+// A proxy function to avoid having to expose the scheduler in header files.
+Process *getCurrentProcess();
+
 inline void
 Scheduler::TimeSlot::process()
 {
+    scheduler.stepChangeStamp();
     scheduler.status(StatusTiming);
 
     try {
@@ -478,7 +515,7 @@ Scheduler::TimeSlot::process()
     scheduler.completeTimeSlot(this);
 }
 
-const ::sc_core::sc_report *reportifyException();
+const ::sc_core::sc_report reportifyException();
 
 } // namespace sc_gem5
 

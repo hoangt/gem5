@@ -29,7 +29,11 @@
 
 #include "systemc/core/port.hh"
 
+#include "base/logging.hh"
+#include "systemc/core/process.hh"
 #include "systemc/core/sensitivity.hh"
+#include "systemc/ext/channel/messages.hh"
+#include "systemc/ext/channel/sc_signal_in_if.hh"
 
 namespace sc_gem5
 {
@@ -49,6 +53,19 @@ Port::finalizeFinder(StaticSensitivityFinder *finder)
 }
 
 void
+Port::finalizeReset(Reset *reset)
+{
+    assert(size() <= 1);
+    if (size()) {
+        auto iface =
+            dynamic_cast<sc_core::sc_signal_in_if<bool> *>(getInterface(0));
+        assert(iface);
+        if (!reset->install(iface))
+            delete reset;
+    }
+}
+
+void
 Port::sensitive(StaticSensitivityPort *port)
 {
     if (finalized)
@@ -64,6 +81,15 @@ Port::sensitive(StaticSensitivityFinder *finder)
         finalizeFinder(finder);
     else
         sensitivities.push_back(new Sensitivity(finder));
+}
+
+void
+Port::addReset(Reset *reset)
+{
+    if (finalized)
+        finalizeReset(reset);
+    else
+        resets.push_back(reset);
 }
 
 void
@@ -94,6 +120,50 @@ Port::finalize()
     }
 
     sensitivities.clear();
+
+    for (auto &r: resets)
+        finalizeReset(r);
+
+    resets.clear();
+
+    if (size() > maxSize()) {
+        std::ostringstream ss;
+        ss << size() << " binds exceeds maximum of " << maxSize() <<
+            " allowed";
+        portBase->report_error(sc_core::SC_ID_COMPLETE_BINDING_,
+                ss.str().c_str());
+    }
+
+    switch (portBase->_portPolicy()) {
+      case sc_core::SC_ONE_OR_MORE_BOUND:
+        if (size() == 0)
+            portBase->report_error(sc_core::SC_ID_COMPLETE_BINDING_,
+                    "port not bound");
+        break;
+      case sc_core::SC_ALL_BOUND:
+        if (size() < maxSize() || size() < 1) {
+            std::stringstream ss;
+            ss << size() << " actual binds is less than required " <<
+                maxSize();
+            portBase->report_error(sc_core::SC_ID_COMPLETE_BINDING_,
+                    ss.str().c_str());
+        }
+        break;
+      case sc_core::SC_ZERO_OR_MORE_BOUND:
+        break;
+      default:
+        panic("Unrecognized port policy %d.", portBase->_portPolicy());
+    }
+}
+
+void
+Port::regPort()
+{
+    if (!regPortNeeded)
+        return;
+
+    for (int i = 0; i < size(); i++)
+        getInterface(i)->register_port(*portBase, portBase->_ifTypeName());
 }
 
 std::list<Port *> allPorts;

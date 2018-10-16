@@ -27,11 +27,12 @@
  * Authors: Gabe Black
  */
 
-#include "base/logging.hh"
 #include "systemc/core/process.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_event.hh"
 #include "systemc/ext/core/sc_join.hh"
 #include "systemc/ext/core/sc_module.hh"
+#include "systemc/ext/utils/sc_report_handler.hh"
 
 namespace sc_core
 {
@@ -43,6 +44,11 @@ sc_join::add_process(sc_process_handle h)
 {
     auto p = (::sc_gem5::Process *)h;
     assert(p);
+
+    if (p->procKind() == SC_METHOD_PROC_) {
+        SC_REPORT_ERROR(SC_ID_JOIN_ON_METHOD_HANDLE_, "");
+        return;
+    }
 
     remaining++;
     p->joinWait(this);

@@ -27,10 +27,13 @@
  * Authors: Gabe Black
  */
 
-#include "base/logging.hh"
+#include <sstream>
+
+#include "base/cprintf.hh"
 #include "systemc/core/module.hh"
 #include "systemc/core/port.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/channel/messages.hh"
 #include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_port.hh"
 
@@ -55,25 +58,24 @@ reportError(const char *id, const char *add_msg,
 
 }
 
-sc_port_base::sc_port_base(const char *name, int n, sc_port_policy p) :
-    sc_object(name), _gem5Port(new ::sc_gem5::Port(this, n))
+sc_port_base::sc_port_base(const char *n, int max_size, sc_port_policy p) :
+    sc_object(n), _gem5Port(nullptr)
 {
     if (sc_is_running()) {
-        reportError("(E110) insert port failed", "simulation running",
-                name, kind());
+        reportError(SC_ID_INSERT_PORT_, "simulation running",
+                name(), kind());
     }
     if (::sc_gem5::scheduler.elaborationDone()) {
-        reportError("(E110) insert port failed", "elaboration done",
-                name, kind());
+        reportError(SC_ID_INSERT_PORT_, "elaboration done",
+                name(), kind());
     }
 
-    ::sc_gem5::Module *m = ::sc_gem5::currentModule();
-    if (!m) {
-        reportError("(E100) port specified outside of module",
-                nullptr, name, kind());
-    } else {
+    auto m = sc_gem5::pickParentModule();
+    if (!m)
+        reportError(SC_ID_PORT_OUTSIDE_MODULE_, nullptr, name(), kind());
+    else
         m->ports.push_back(this);
-    }
+    _gem5Port = new ::sc_gem5::Port(this, max_size);
 }
 
 sc_port_base::~sc_port_base()
@@ -82,9 +84,25 @@ sc_port_base::~sc_port_base()
 }
 
 void
-sc_port_base::warn_unimpl(const char *func) const
+sc_port_base::warn_port_constructor() const
 {
-    warn("%s not implemented.\n", func);
+    static bool warned = false;
+    if (!warned) {
+        SC_REPORT_INFO(SC_ID_IEEE_1666_DEPRECATION_,
+                "interface and/or port binding in port constructors "
+                "is deprecated");
+        warned = true;
+    }
+}
+
+void
+sc_port_base::report_error(const char *id, const char *add_msg) const
+{
+    std::ostringstream ss;
+    if (add_msg)
+        ss << add_msg << ": ";
+    ss << "port '" << name() << "' (" << kind() << ")";
+    SC_REPORT_ERROR(id, ss.str().c_str());
 }
 
 int sc_port_base::maxSize() const { return _gem5Port->maxSize(); }

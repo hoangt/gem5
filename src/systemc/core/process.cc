@@ -29,9 +29,10 @@
 
 #include "systemc/core/process.hh"
 
-#include "base/logging.hh"
 #include "systemc/core/event.hh"
+#include "systemc/core/port.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_join.hh"
 #include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_process_handle.hh"
@@ -119,7 +120,7 @@ Process::disable(bool inc_kids)
             timeoutEvent.scheduled()) {
         std::string message("attempt to disable a thread with timeout wait: ");
         message += name();
-        SC_REPORT_ERROR("Undefined process control interaction",
+        SC_REPORT_ERROR(sc_core::SC_ID_PROCESS_CONTROL_CORNER_CASE_,
                 message.c_str());
     }
 
@@ -140,8 +141,7 @@ void
 Process::kill(bool inc_kids)
 {
     if (::sc_core::sc_get_status() != ::sc_core::SC_RUNNING) {
-        SC_REPORT_ERROR(
-                "(E572) a process may not be killed before it is initialized",
+        SC_REPORT_ERROR(sc_core::SC_ID_KILL_PROCESS_WHILE_UNITIALIZED_,
                 name());
     }
 
@@ -169,9 +169,8 @@ void
 Process::reset(bool inc_kids)
 {
     if (::sc_core::sc_get_status() != ::sc_core::SC_RUNNING) {
-        SC_REPORT_ERROR(
-                "(E573) a process may not be asynchronously reset while"
-                "the simulation is not running", name());
+        SC_REPORT_ERROR(sc_core::SC_ID_RESET_PROCESS_WHILE_NOT_RUNNING_,
+                name());
     }
 
     // Propogate the reset to our children no matter what happens to us.
@@ -182,6 +181,10 @@ Process::reset(bool inc_kids)
     if (_isUnwinding)
         return;
 
+    // Clear suspended ready since we're about to run regardless.
+    _suspendedReady = false;
+
+    _resetEvent.notify();
 
     if (_needsStart) {
         scheduler.runNow(this);
@@ -189,25 +192,24 @@ Process::reset(bool inc_kids)
         _isUnwinding = true;
         injectException(resetException);
     }
-
-    _resetEvent.notify();
 }
 
 void
 Process::throw_it(ExceptionWrapperBase &exc, bool inc_kids)
 {
-    if (::sc_core::sc_get_status() != ::sc_core::SC_RUNNING) {
-        SC_REPORT_ERROR(
-                "(E574) throw_it not allowed unless simulation is running ",
-                name());
-    }
+    if (::sc_core::sc_get_status() != ::sc_core::SC_RUNNING)
+        SC_REPORT_ERROR(sc_core::SC_ID_THROW_IT_WHILE_NOT_RUNNING_, name());
 
     if (inc_kids)
         forEachKid([&exc](Process *p) { p->throw_it(exc, true); });
 
-    // Only inject an exception into threads that have started.
-    if (!_needsStart)
-        injectException(exc);
+    if (_needsStart || _terminated ||
+            procKind() == ::sc_core::SC_METHOD_PROC_) {
+        SC_REPORT_WARNING(sc_core::SC_ID_THROW_IT_IGNORED_, name());
+        return;
+    }
+
+    injectException(exc);
 }
 
 void
@@ -233,6 +235,27 @@ Process::syncResetOff(bool inc_kids)
         forEachKid([](Process *p) { p->syncResetOff(true); });
 
     _syncReset = false;
+}
+
+void
+Process::signalReset(bool set, bool sync)
+{
+    if (set) {
+        waitCount(0);
+        if (sync) {
+            syncResetCount++;
+        } else {
+            asyncResetCount++;
+            cancelTimeout();
+            clearDynamic();
+            scheduler.runNext(this);
+        }
+    } else {
+        if (sync)
+            syncResetCount--;
+        else
+            asyncResetCount--;
+    }
 }
 
 void
@@ -272,6 +295,12 @@ Process::setDynamic(DynamicSensitivity *s)
 }
 
 void
+Process::addReset(Reset *reset)
+{
+    resets.push_back(reset);
+}
+
+void
 Process::cancelTimeout()
 {
     if (timeoutEvent.scheduled())
@@ -302,6 +331,11 @@ Process::timeout()
 void
 Process::satisfySensitivity(Sensitivity *s)
 {
+    if (_waitCount) {
+        _waitCount--;
+        return;
+    }
+
     // If there's a dynamic sensitivity and this wasn't it, ignore.
     if ((dynamicSensitivity || timeoutEvent.scheduled()) &&
             dynamicSensitivity != s) {
@@ -324,7 +358,7 @@ Process::ready()
         return;
     if (suspended())
         _suspendedReady = true;
-    else
+    else if (!scheduled())
         scheduler.ready(this);
 }
 
@@ -346,8 +380,10 @@ Process::Process(const char *name, ProcessFuncWrapper *func, bool internal) :
     timeoutEvent([this]() { this->timeout(); }),
     func(func), _internal(internal), _timedOut(false), _dontInitialize(false),
     _needsStart(true), _isUnwinding(false), _terminated(false),
-    _suspended(false), _disabled(false), _syncReset(false), refCount(0),
-    stackSize(::Fiber::DefaultStackSize), dynamicSensitivity(nullptr)
+    _scheduled(false), _suspended(false), _disabled(false),
+    _syncReset(false), syncResetCount(0), asyncResetCount(0), _waitCount(0),
+    refCount(0), stackSize(::Fiber::DefaultStackSize),
+    dynamicSensitivity(nullptr)
 {
     _dynamic =
             (::sc_core::sc_get_status() >
@@ -383,6 +419,21 @@ void
 throw_it_wrapper(Process *p, ExceptionWrapperBase &exc, bool inc_kids)
 {
     p->throw_it(exc, inc_kids);
+}
+
+void
+newReset(const sc_core::sc_port_base *pb, Process *p, bool s, bool v)
+{
+    Port *port = Port::fromPort(pb);
+    port->addReset(new Reset(p, s, v));
+}
+
+void
+newReset(const sc_core::sc_signal_in_if<bool> *sig, Process *p, bool s, bool v)
+{
+    Reset *reset = new Reset(p, s, v);
+    if (!reset->install(sig))
+        delete reset;
 }
 
 } // namespace sc_gem5

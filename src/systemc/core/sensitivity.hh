@@ -36,6 +36,7 @@
 #include "sim/eventq.hh"
 #include "systemc/core/sched_event.hh"
 #include "systemc/ext/core/sc_module.hh"
+#include "systemc/ext/core/sc_port.hh"
 
 namespace sc_core
 {
@@ -71,20 +72,20 @@ class Sensitivity
     virtual void addToEvent(const ::sc_core::sc_event *e) = 0;
     virtual void delFromEvent(const ::sc_core::sc_event *e) = 0;
 
-    virtual bool
-    notifyWork(Event *e)
-    {
-        satisfy();
-        return true;
-    }
-
   public:
     virtual void clear() = 0;
 
     void satisfy();
+    virtual bool notifyWork(Event *e);
     bool notify(Event *e);
 
-    virtual bool dynamic() = 0;
+    enum Category
+    {
+        Static,
+        Dynamic
+    };
+
+    virtual Category category() = 0;
 
     bool ofMethod();
 };
@@ -103,7 +104,7 @@ class DynamicSensitivity : virtual public Sensitivity
     void delFromEvent(const ::sc_core::sc_event *e) override;
 
   public:
-    bool dynamic() override { return true; }
+    Category category() override { return Dynamic; }
 };
 
 typedef std::vector<DynamicSensitivity *> DynamicSensitivities;
@@ -118,7 +119,7 @@ class StaticSensitivity : virtual public Sensitivity
     void delFromEvent(const ::sc_core::sc_event *e) override;
 
   public:
-    bool dynamic() override { return false; }
+    Category category() override { return Static; }
 };
 
 typedef std::vector<StaticSensitivity *> StaticSensitivities;

@@ -27,16 +27,17 @@
  * Authors: Gabe Black
  */
 
-#include "base/logging.hh"
-#include "systemc/ext/utils/warn_unimpl.hh"
+#ifndef __SYSTEMC_EXT_DT_INT_MESSAGES_HH__
+#define __SYSTEMC_EXT_DT_INT_MESSAGES_HH__
 
 namespace sc_core
 {
 
-void
-sc_utils_warn_unimpl(const char *func)
-{
-    warn("%s not implemented.\n", func);
-}
+extern const char SC_ID_INIT_FAILED_[];
+extern const char SC_ID_ASSIGNMENT_FAILED_[];
+extern const char SC_ID_OPERATION_FAILED_[];
+extern const char SC_ID_CONVERSION_FAILED_[];
 
-} // namespace sc_core
+};
+
+#endif // __SYSTEMC_EXT_DT_INT_MESSAGES_HH__

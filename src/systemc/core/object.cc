@@ -30,12 +30,14 @@
 #include "systemc/core/object.hh"
 
 #include <algorithm>
+#include <stack>
 
-#include "base/logging.hh"
 #include "systemc/core/event.hh"
 #include "systemc/core/module.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_module.hh"
+#include "systemc/ext/core/sc_simcontext.hh"
 
 namespace sc_gem5
 {
@@ -91,23 +93,12 @@ Object::Object(sc_core::sc_object *_sc_obj, const char *obj_name) :
     if (_basename == "")
         _basename = ::sc_core::sc_gen_unique_name("object");
 
-    Module *p = currentModule();
-    if (!p)
-        p = callbackModule();
+    parent = pickParentObj();
 
     Module *n = newModule();
     if (n) {
         // We are a module in the process of being constructed.
         n->finish(this);
-    }
-
-    if (p) {
-        // We're "within" a parent module, ie we're being created while its
-        // constructor or end_of_elaboration callback is running.
-        parent = p->obj()->_sc_obj;
-    } else if (scheduler.current()) {
-        // Our parent is the currently running process.
-        parent = scheduler.current();
     }
 
     std::string original_name = _basename;
@@ -131,7 +122,7 @@ Object::Object(sc_core::sc_object *_sc_obj, const char *obj_name) :
         std::string message = path + original_name +
             ". Latter declaration will be renamed to " +
             path + _basename;
-        SC_REPORT_WARNING("(W505) object already exists", message.c_str());
+        SC_REPORT_WARNING(sc_core::SC_ID_INSTANCE_EXISTS_, message.c_str());
     }
     _name = path + _basename;
 }
@@ -154,6 +145,9 @@ Object::~Object()
         child->_gem5_object->parent = nullptr;
     }
     children.clear();
+
+    for (auto event: events)
+        Event::getFromScEvent(event)->clearParent();
 
     if (parent)
         popObject(&parent->_gem5_object->children, _name);
@@ -249,8 +243,7 @@ Object::attr_cltn() const
 sc_core::sc_simcontext *
 Object::simcontext() const
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return nullptr;
+    return sc_core::sc_get_curr_simcontext();
 }
 
 EventsIt
@@ -307,5 +300,28 @@ findObject(const char *name, const Objects &objects)
     ObjectsIt it = findObjectIn(allObjects, name);
     return it == allObjects.end() ? nullptr : *it;
 }
+
+namespace
+{
+
+std::stack<sc_core::sc_object *> objParentStack;
+
+} // anonymous namespace
+
+sc_core::sc_object *
+pickParentObj()
+{
+    if (!objParentStack.empty())
+        return objParentStack.top();
+
+    Process *p = scheduler.current();
+    if (p)
+        return p;
+
+    return nullptr;
+}
+
+void pushParentObj(sc_core::sc_object *obj) { objParentStack.push(obj); }
+void popParentObj() { objParentStack.pop(); }
 
 } // namespace sc_gem5

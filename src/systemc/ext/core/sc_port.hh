@@ -30,8 +30,10 @@
 #ifndef __SYSTEMC_EXT_CORE_SC_PORT_HH__
 #define __SYSTEMC_EXT_CORE_SC_PORT_HH__
 
+#include <typeinfo>
 #include <vector>
 
+#include "../channel/messages.hh"
 #include "../utils/sc_report_handler.hh"
 #include "sc_module.hh" // for sc_gen_unique_name
 #include "sc_object.hh"
@@ -47,6 +49,22 @@ namespace sc_core
 {
 
 class sc_interface;
+class sc_trace_file;
+
+// Nonstandard
+// Despite having a warning "FOR INTERNAL USE ONLY!" in all caps above this
+// class definition in the Accellera implementation, it appears in their
+// examples and test programs, and so we need to have it here as well.
+struct sc_trace_params
+{
+    sc_trace_file *tf;
+    std::string name;
+
+    sc_trace_params(sc_trace_file *tf, const std::string &name) :
+        tf(tf), name(name)
+    {}
+};
+typedef std::vector<sc_trace_params *> sc_trace_params_vec;
 
 enum sc_port_policy
 {
@@ -61,7 +79,7 @@ class sc_port_base : public sc_object
     sc_port_base(const char *name, int n, sc_port_policy p);
     virtual ~sc_port_base();
 
-    void warn_unimpl(const char *func) const;
+    void warn_port_constructor() const;
 
     int maxSize() const;
     int size() const;
@@ -84,6 +102,8 @@ class sc_port_base : public sc_object
     virtual void start_of_simulation() = 0;
     virtual void end_of_simulation() = 0;
 
+    void report_error(const char *id, const char *add_msg) const;
+
   private:
     friend class ::sc_gem5::Port;
     friend class ::sc_gem5::Kernel;
@@ -92,6 +112,8 @@ class sc_port_base : public sc_object
     virtual void _gem5AddInterface(sc_interface *i) = 0;
 
     ::sc_gem5::Port *_gem5Port;
+    virtual const char *_ifTypeName() const = 0;
+    virtual sc_port_policy _portPolicy() const = 0;
 };
 
 template <class IF>
@@ -107,39 +129,53 @@ class sc_port_b : public sc_port_base
     IF *
     operator -> ()
     {
-        sc_assert(!_interfaces.empty());
+        if (_interfaces.empty()) {
+            report_error(SC_ID_GET_IF_, "port is not bound");
+            sc_abort();
+        }
         return _interfaces[0];
     }
     const IF *
     operator -> () const
     {
-        sc_assert(!_interfaces.empty());
+        if (_interfaces.empty()) {
+            report_error(SC_ID_GET_IF_, "port is not bound");
+            sc_abort();
+        }
         return _interfaces[0];
     }
 
     IF *
     operator [] (int n)
     {
-        sc_assert(_interfaces.size() > n);
+        if (n < 0 || n >= size()) {
+            report_error(SC_ID_GET_IF_, "index out of range");
+            return NULL;
+        }
         return _interfaces[n];
     }
     const IF *
     operator [] (int n) const
     {
-        sc_assert(_interfaces.size() > n);
+        if (n < 0 || n >= size()) {
+            report_error(SC_ID_GET_IF_, "index out of range");
+            return NULL;
+        }
         return _interfaces[n];
     }
 
     sc_interface *
     get_interface()
     {
-        sc_assert(!_interfaces.empty());
+        if (_interfaces.empty())
+            return NULL;
         return _interfaces[0];
     }
     const sc_interface *
     get_interface() const
     {
-        sc_assert(!_interfaces.empty());
+        if (_interfaces.empty())
+            return NULL;
         return _interfaces[0];
     }
 
@@ -183,16 +219,27 @@ class sc_port_b : public sc_port_base
     sc_interface *
     _gem5Interface(int n) const
     {
-        sc_assert(_interfaces.size() > n);
+        if (n < 0 || n >= size()) {
+            report_error(SC_ID_GET_IF_, "index out of range");
+            return NULL;
+        }
         return _interfaces[n];
     }
     void
-    _gem5AddInterface(sc_interface *i)
+    _gem5AddInterface(sc_interface *iface)
     {
-        IF *interface = dynamic_cast<IF *>(i);
+        IF *interface = dynamic_cast<IF *>(iface);
         sc_assert(interface);
+        for (int i = 0; i < _interfaces.size(); i++) {
+            if (interface == _interfaces[i]) {
+                report_error(SC_ID_BIND_IF_TO_PORT_,
+                        "interface already bound to port");
+            }
+        }
         _interfaces.push_back(interface);
     }
+
+    const char *_ifTypeName() const { return typeid(IF).name(); }
 
     // Disabled
     sc_port_b() {}
@@ -211,40 +258,34 @@ class sc_port : public sc_port_b<IF>
     // Deprecated binding constructors.
     explicit sc_port(const IF &interface) : sc_port_b<IF>(N, P)
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        // Should warn that these are deprecated. See Accellera sc_port.h.
+        this->warn_port_constructor();
         sc_port_b<IF>::bind(const_cast<IF &>(interface));
     }
     sc_port(const char *name, const IF &interface) : sc_port_b<IF>(name, N, P)
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        // Should warn that these are deprecated. See Accellera sc_port.h.
+        this->warn_port_constructor();
         sc_port_b<IF>::bind(const_cast<IF &>(interface));
     }
     explicit sc_port(sc_port_b<IF> &parent) : sc_port_b<IF>(N, P)
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        // Should warn that these are deprecated. See Accellera sc_port.h.
+        this->warn_port_constructor();
         sc_port_b<IF>::bind(parent);
     }
     sc_port(const char *name, sc_port_b<IF> &parent) :
         sc_port_b<IF>(name, N, P)
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        // Should warn that these are deprecated. See Accellera sc_port.h.
+        this->warn_port_constructor();
         sc_port_b<IF>::bind(parent);
     }
     explicit sc_port(sc_port<IF, N, P> &parent) : sc_port_b<IF>(N, P)
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        // Should warn that these are deprecated. See Accellera sc_port.h.
+        this->warn_port_constructor();
         sc_port_b<IF>::bind(parent);
     }
     sc_port(const char *name, sc_port<IF, N, P> &parent) :
         sc_port_b<IF>(name, N, P)
     {
-        this->warn_unimpl(__PRETTY_FUNCTION__);
-        // Should warn that these are deprecated. See Accellera sc_port.h.
+        this->warn_port_constructor();
         sc_port_b<IF>::bind(parent);
     }
 
@@ -254,6 +295,8 @@ class sc_port : public sc_port_b<IF>
     // Disabled
     sc_port(const sc_port<IF, N, P> &) {}
     sc_port<IF, N, P> &operator = (const sc_port<IF, N, P> &) { return *this; }
+
+    virtual sc_port_policy _portPolicy() const { return P; }
 };
 
 } // namespace sc_core

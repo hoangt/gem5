@@ -33,10 +33,10 @@
 #include <sstream>
 
 #include "../core/sc_port.hh"
+#include "messages.hh"
 #include "sc_signal_in_if.hh"
 #include "sc_signal_inout_if.hh"
 #include "sc_signal_rv.hh"
-#include "warn_unimpl.hh"
 
 namespace sc_dt
 {
@@ -94,10 +94,8 @@ class sc_inout_rv : public sc_inout<sc_dt::sc_lv<W>>
         sc_inout<sc_dt::sc_lv<W> >::end_of_elaboration();
         if (!dynamic_cast<sc_signal_rv<W> *>(this->get_interface())) {
             std::ostringstream ss;
-            ss << this->name() << " (" << this->kind() << ")";
-            SC_REPORT_ERROR(
-                    "(E117) resolved port not bound to resolved signal",
-                    ss.str().c_str());
+            ss << "port '" << this->name() << "' (" << this->kind() << ")";
+            SC_REPORT_ERROR(SC_ID_RESOLVED_PORT_NOT_BOUND_, ss.str().c_str());
         }
     }
 

@@ -33,9 +33,12 @@
 #include "base/logging.hh"
 #include "sim/eventq.hh"
 #include "systemc/core/kernel.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/utils/sc_report.hh"
 #include "systemc/ext/utils/sc_report_handler.hh"
+#include "systemc/utils/report.hh"
+#include "systemc/utils/tracefile.hh"
 
 namespace sc_gem5
 {
@@ -48,8 +51,8 @@ Scheduler::Scheduler() :
     starvationEvent(this, false, StarvationPriority),
     _elaborationDone(false), _started(false), _stopNow(false),
     _status(StatusOther), maxTickEvent(this, false, MaxTickPriority),
-    _numCycles(0), _changeStamp(0), _current(nullptr), initDone(false),
-    runOnce(false)
+    timeAdvancesEvent(this, false, TimeAdvancesPriority), _numCycles(0),
+    _changeStamp(0), _current(nullptr), initDone(false), runOnce(false)
 {}
 
 Scheduler::~Scheduler()
@@ -86,6 +89,8 @@ Scheduler::clear()
         deschedule(&starvationEvent);
     if (maxTickEvent.scheduled())
         deschedule(&maxTickEvent);
+    if (timeAdvancesEvent.scheduled())
+        deschedule(&timeAdvancesEvent);
 
     Process *p;
     while ((p = initList.getNext()))
@@ -108,10 +113,8 @@ Scheduler::initPhase()
 
         if (p->dontInitialize()) {
             if (!p->hasStaticSensitivities() && !p->internal()) {
-                SC_REPORT_WARNING(
-                        "(W558) disable() or dont_initialize() called on "
-                        "process with no static sensitivity, it will be "
-                        "orphaned", p->name());
+                SC_REPORT_WARNING(sc_core::SC_ID_DISABLE_WILL_ORPHAN_PROCESS_,
+                        p->name());
             }
         } else {
             p->ready();
@@ -134,6 +137,8 @@ Scheduler::initPhase()
     initDone = true;
 
     status(StatusOther);
+
+    scheduleTimeAdvancesEvent();
 }
 
 void
@@ -160,12 +165,17 @@ Scheduler::yield()
         Fiber::primaryFiber()->run();
     } else {
         _current->popListNode();
+        _current->scheduled(false);
         // Switch to whatever Fiber is supposed to run this process. All
         // Fibers which aren't running should be parked at this line.
         _current->fiber()->run();
         // If the current process needs to be manually started, start it.
         if (_current && _current->needsStart()) {
             _current->needsStart(false);
+            // If a process hasn't started yet, "resetting" it just starts it
+            // and signals its reset event.
+            if (_current->inReset())
+                _current->resetEvent().notify();
             try {
                 _current->run();
             } catch (...) {
@@ -173,12 +183,14 @@ Scheduler::yield()
             }
         }
     }
-    if (_current && _current->excWrapper) {
-        // Make sure this isn't a method process.
-        assert(!_current->needsStart());
-        auto ew = _current->excWrapper;
-        _current->excWrapper = nullptr;
-        ew->throw_it();
+    if (_current && !_current->needsStart()) {
+        if (_current->excWrapper) {
+            auto ew = _current->excWrapper;
+            _current->excWrapper = nullptr;
+            ew->throw_it();
+        } else if (_current->inReset()) {
+            _current->reset(false);
+        }
     }
 }
 
@@ -188,12 +200,15 @@ Scheduler::ready(Process *p)
     if (_stopNow)
         return;
 
+    p->scheduled(true);
+
     if (p->procKind() == ::sc_core::SC_METHOD_PROC_)
         readyListMethods.pushLast(p);
     else
         readyListThreads.pushLast(p);
 
-    scheduleReadyEvent();
+    if (!inEvaluate())
+        scheduleReadyEvent();
 }
 
 void
@@ -234,7 +249,8 @@ void
 Scheduler::requestUpdate(Channel *c)
 {
     updateList.pushLast(c);
-    scheduleReadyEvent();
+    if (!inEvaluate())
+        scheduleReadyEvent();
 }
 
 void
@@ -261,23 +277,31 @@ Scheduler::scheduleStarvationEvent()
 void
 Scheduler::runReady()
 {
+    scheduleTimeAdvancesEvent();
+
     bool empty = readyListMethods.empty() && readyListThreads.empty();
     lastReadyTick = getCurTick();
 
     // The evaluation phase.
+    status(StatusEvaluate);
     do {
         yield();
     } while (getNextReady());
+    _current = nullptr;
 
     if (!empty) {
         _numCycles++;
         _changeStamp++;
     }
 
-    if (_stopNow)
+    if (_stopNow) {
+        status(StatusOther);
         return;
+    }
 
     runUpdate();
+    if (!traceFiles.empty())
+        trace(true);
     runDelta();
 
     if (!runToTime && starved())
@@ -313,7 +337,7 @@ Scheduler::runDelta()
 
     try {
         while (!deltas.empty())
-            deltas.front()->run();
+            deltas.back()->run();
     } catch (...) {
         throwToScMain();
     }
@@ -363,6 +387,7 @@ Scheduler::start(Tick max_tick, bool run_to_time)
     }
 
     schedule(&maxTickEvent, maxTick);
+    scheduleTimeAdvancesEvent();
 
     // Return to gem5 to let it run events, etc.
     Fiber::primaryFiber()->run();
@@ -401,11 +426,10 @@ Scheduler::schedulePause()
 }
 
 void
-Scheduler::throwToScMain(const ::sc_core::sc_report *r)
+Scheduler::throwToScMain()
 {
-    if (!r)
-        r = reportifyException();
-    _throwToScMain = r;
+    ::sc_core::sc_report report = reportifyException();
+    _throwToScMain = &report;
     status(StatusOther);
     scMain->run();
 }
@@ -425,7 +449,15 @@ Scheduler::scheduleStop(bool finish_delta)
     schedule(&stopEvent);
 }
 
+void
+Scheduler::trace(bool delta)
+{
+    for (auto tf: traceFiles)
+        tf->trace(delta);
+}
+
 Scheduler scheduler;
+Process *getCurrentProcess() { return scheduler.current(); }
 
 namespace {
 
@@ -438,11 +470,10 @@ throwingReportHandler(const ::sc_core::sc_report &r,
 
 } // anonymous namespace
 
-const ::sc_core::sc_report *
+const ::sc_core::sc_report
 reportifyException()
 {
-    ::sc_core::sc_report_handler_proc old_handler =
-        ::sc_core::sc_report_handler::get_handler();
+    ::sc_core::sc_report_handler_proc old_handler = reportHandlerProc;
     ::sc_core::sc_report_handler::set_handler(&throwingReportHandler);
 
     try {
@@ -456,15 +487,19 @@ reportifyException()
         } catch (const ::sc_core::sc_unwind_exception &) {
             panic("Kill/reset exception escaped a Process::run()");
         } catch (const std::exception &e) {
-            SC_REPORT_ERROR("uncaught exception", e.what());
+            SC_REPORT_ERROR(
+                    sc_core::SC_ID_SIMULATION_UNCAUGHT_EXCEPTION_, e.what());
         } catch (const char *msg) {
-            SC_REPORT_ERROR("uncaught exception", msg);
+            SC_REPORT_ERROR(
+                    sc_core::SC_ID_SIMULATION_UNCAUGHT_EXCEPTION_, msg);
         } catch (...) {
-            SC_REPORT_ERROR("uncaught exception", "UNKNOWN EXCEPTION");
+            SC_REPORT_ERROR(
+                    sc_core::SC_ID_SIMULATION_UNCAUGHT_EXCEPTION_,
+                    "UNKNOWN EXCEPTION");
         }
     } catch (const ::sc_core::sc_report &r) {
         ::sc_core::sc_report_handler::set_handler(old_handler);
-        return &r;
+        return r;
     }
     panic("No exception thrown in reportifyException.");
 }

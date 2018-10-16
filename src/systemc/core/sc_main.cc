@@ -39,8 +39,10 @@
 #include "systemc/core/kernel.hh"
 #include "systemc/core/python.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/utils/sc_report_handler.hh"
+#include "systemc/utils/report.hh"
 
 // A weak symbol to detect if sc_main has been defined, and if so where it is.
 [[gnu::weak]] int sc_main(int argc, char *argv[]);
@@ -78,11 +80,15 @@ class ScMainFiber : public Fiber
                 // after sc_main returns.
             } catch (const sc_report &r) {
                 // There was an exception nobody caught.
-                resultStr = r.what();
+                resultStr = "uncaught sc_report";
+                sc_gem5::reportHandlerProc(
+                        r, sc_report_handler::get_catch_actions());
             } catch (...) {
                 // There was some other type of exception we need to wrap.
-                const sc_report *r = ::sc_gem5::reportifyException();
-                resultStr = r->what();
+                resultStr = "uncaught exception";
+                sc_gem5::reportHandlerProc(
+                        ::sc_gem5::reportifyException(),
+                        sc_report_handler::get_catch_actions());
             }
             ::sc_gem5::Kernel::scMainFinished(true);
             ::sc_gem5::scheduler.clear();
@@ -198,10 +204,8 @@ sc_start(const sc_time &time, sc_starvation_policy p)
         ::sc_gem5::scheduler.oneCycle();
     } else {
         Tick now = ::sc_gem5::scheduler.getCurTick();
-        if (MaxTick - now < time.value()) {
-            SC_REPORT_ERROR("(E544) simulation time value overflow, "
-                    "simulation aborted", "");
-        }
+        if (MaxTick - now < time.value())
+            SC_REPORT_ERROR(SC_ID_SIMULATION_TIME_OVERFLOW_, "");
         ::sc_gem5::scheduler.start(now + time.value(), p == SC_RUN_TO_TIME);
     }
 }
@@ -210,8 +214,7 @@ void
 sc_set_stop_mode(sc_stop_mode mode)
 {
     if (sc_is_running()) {
-        SC_REPORT_ERROR("attempt to set sc_stop mode "
-                        "after start will be ignored", "");
+        SC_REPORT_ERROR(SC_ID_STOP_MODE_AFTER_START_, "");
         return;
     }
     _stop_mode = mode;
@@ -230,7 +233,7 @@ sc_stop()
     if (stop_called) {
         static bool stop_warned = false;
         if (!stop_warned)
-            SC_REPORT_WARNING("(W545) sc_stop has already been called", "");
+            SC_REPORT_WARNING(SC_ID_SIMULATION_STOP_CALLED_TWICE_, "");
         stop_warned = true;
         return;
     }
@@ -250,12 +253,8 @@ sc_stop()
 const sc_time &
 sc_time_stamp()
 {
-    static sc_time tstamp;
-    Tick tick = ::sc_gem5::scheduler.getCurTick();
-    //XXX We're assuming the systemc time resolution is in ps.
-    // If tick is zero, the time scale may not be fixed yet, and
-    // SimClock::Int::ps may be zero.
-    tstamp = sc_time::from_value(tick ? tick / SimClock::Int::ps : 0);
+    static sc_time tstamp(1.0, SC_SEC);
+    tstamp = sc_time::from_value(::sc_gem5::scheduler.getCurTick());
     return tstamp;
 }
 

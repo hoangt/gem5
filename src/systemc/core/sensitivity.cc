@@ -33,6 +33,10 @@
 #include "systemc/core/port.hh"
 #include "systemc/core/process.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/channel/sc_in.hh"
+#include "systemc/ext/channel/sc_inout.hh"
+#include "systemc/ext/channel/sc_out.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_export.hh"
 #include "systemc/ext/core/sc_interface.hh"
 #include "systemc/ext/core/sc_port.hh"
@@ -51,10 +55,28 @@ Sensitivity::satisfy()
 }
 
 bool
+Sensitivity::notifyWork(Event *e)
+{
+    satisfy();
+    return true;
+}
+
+bool
 Sensitivity::notify(Event *e)
 {
+    if (scheduler.current() == process) {
+        static bool warned = false;
+        if (!warned) {
+            SC_REPORT_WARNING(sc_core::SC_ID_IMMEDIATE_SELF_NOTIFICATION_,
+                    process->name());
+            warned = true;
+        }
+        return false;
+    }
+
     if (process->disabled())
         return false;
+
     return notifyWork(e);
 }
 

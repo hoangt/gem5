@@ -47,7 +47,7 @@ args = parser.parse_args()
 if args.working_dir:
     os.chdir(args.working_dir)
 
-kernel.sc_main("Hello", "World");
+kernel.sc_main();
 
 m5.instantiate(None)
 
@@ -59,5 +59,4 @@ if result.code != 0:
     # generate errors, and as long as their output matches that's still
     # considered correct. A "real" systemc config should expect sc_main
     # (if present) not to fail.
-    print('\n' + result.message)
     sys.exit(int(result.code))

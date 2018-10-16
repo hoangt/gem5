@@ -27,20 +27,29 @@
  * Authors: Gabe Black
  */
 
-#include "systemc/core/process_types.hh"
+#ifndef __SYSTEMC_EXT_UTILS_MESSAGES_HH__
+#define __SYSTEMC_EXT_UTILS_MESSAGES_HH__
 
-namespace sc_gem5
+namespace sc_core
 {
 
-void
-Thread::throw_it(ExceptionWrapperBase &exc, bool inc_kids)
-{
-    Process::throw_it(exc, inc_kids);
+extern const char SC_ID_UNKNOWN_ERROR_[];
+extern const char SC_ID_WITHOUT_MESSAGE_[];
+extern const char SC_ID_NOT_IMPLEMENTED_[];
+extern const char SC_ID_INTERNAL_ERROR_[];
+extern const char SC_ID_ASSERTION_FAILED_[];
+extern const char SC_ID_OUT_OF_BOUNDS_[];
+extern const char SC_ID_ABORT_[];
 
-    if (_terminated)
-        return;
+extern const char SC_ID_REGISTER_ID_FAILED_[];
+extern const char SC_ID_STRING_TOO_LONG_[];
+extern const char SC_ID_FRONT_ON_EMPTY_LIST_[];
+extern const char SC_ID_BACK_ON_EMPTY_LIST_[];
+extern const char SC_ID_IEEE_1666_DEPRECATION_[];
+extern const char SC_ID_VECTOR_INIT_CALLED_TWICE_[];
+extern const char SC_ID_VECTOR_BIND_EMPTY_[];
+extern const char SC_ID_VECTOR_NONOBJECT_ELEMENTS_[];
 
-    injectException(exc);
-}
+} // namespace sc_core
 
-} // namespace sc_gem5
+#endif // __SYSTEMC_EXT_UTILS_MESSAGES_HH__

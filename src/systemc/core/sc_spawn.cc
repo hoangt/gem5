@@ -31,6 +31,11 @@
 #include "systemc/core/process.hh"
 #include "systemc/core/process_types.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/channel/sc_in.hh"
+#include "systemc/ext/channel/sc_inout.hh"
+#include "systemc/ext/channel/sc_out.hh"
+#include "systemc/ext/channel/sc_signal_in_if.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_module.hh"
 #include "systemc/ext/core/sc_spawn.hh"
@@ -83,15 +88,25 @@ spawnWork(ProcessFuncWrapper *func, const char *name,
 
         for (auto f: opts->_finders)
             newStaticSensitivityFinder(proc, f);
+
+        for (auto p: opts->_in_resets)
+            newReset(p.target, proc, p.sync, p.value);
+
+        for (auto p: opts->_inout_resets)
+            newReset(p.target, proc, p.sync, p.value);
+
+        for (auto p: opts->_out_resets)
+            newReset(p.target, proc, p.sync, p.value);
+
+        for (auto i: opts->_if_resets)
+            newReset(i.target, proc, i.sync, i.value);
     }
 
     if (opts && opts->_dontInitialize &&
             opts->_events.empty() && opts->_ports.empty() &&
             opts->_exports.empty() && opts->_interfaces.empty() &&
             opts->_finders.empty()) {
-        SC_REPORT_WARNING(
-                "(W558) disable() or dont_initialize() called on process "
-                "with no static sensitivity, it will be orphaned",
+        SC_REPORT_WARNING(sc_core::SC_ID_DISABLE_WILL_ORPHAN_PROCESS_,
                 proc->name());
     }
 
@@ -161,74 +176,54 @@ sc_spawn_options::set_sensitivity(sc_event_finder *f)
 
 
 void
-sc_spawn_options::reset_signal_is(const sc_in<bool> &, bool)
+sc_spawn_options::reset_signal_is(const sc_in<bool> &port, bool value)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    _in_resets.emplace_back(&port, value, true);
 }
 
 void
-sc_spawn_options::reset_signal_is(const sc_inout<bool> &, bool)
+sc_spawn_options::reset_signal_is(const sc_inout<bool> &port, bool value)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    _inout_resets.emplace_back(&port, value, true);
 }
 
 void
-sc_spawn_options::reset_signal_is(const sc_out<bool> &, bool)
+sc_spawn_options::reset_signal_is(const sc_out<bool> &port, bool value)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    _out_resets.emplace_back(&port, value, true);
 }
 
 void
-sc_spawn_options::reset_signal_is(const sc_signal_in_if<bool> &, bool)
+sc_spawn_options::reset_signal_is(
+        const sc_signal_in_if<bool> &iface, bool value)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-}
-
-
-void
-sc_spawn_options::async_reset_signal_is(const sc_in<bool> &, bool)
-{
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-}
-
-void
-sc_spawn_options::async_reset_signal_is(const sc_inout<bool> &, bool)
-{
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-}
-
-void
-sc_spawn_options::async_reset_signal_is(const sc_out<bool> &, bool)
-{
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-}
-
-void
-sc_spawn_options::async_reset_signal_is(const sc_signal_in_if<bool> &, bool)
-{
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    _if_resets.emplace_back(&iface, value, true);
 }
 
 
 void
-sc_spawn_warn_unimpl(const char *func)
+sc_spawn_options::async_reset_signal_is(const sc_in<bool> &port, bool value)
 {
-    warn("%s not implemented.\n", func);
+    _in_resets.emplace_back(&port, value, false);
+}
+
+void
+sc_spawn_options::async_reset_signal_is(const sc_inout<bool> &port, bool value)
+{
+    _inout_resets.emplace_back(&port, value, false);
+}
+
+void
+sc_spawn_options::async_reset_signal_is(const sc_out<bool> &port, bool value)
+{
+    _out_resets.emplace_back(&port, value, false);
+}
+
+void
+sc_spawn_options::async_reset_signal_is(
+        const sc_signal_in_if<bool> &iface, bool value)
+{
+    _if_resets.emplace_back(&iface, value, false);
 }
 
 } // namespace sc_core
-
-namespace sc_unnamed
-{
-
-ImplementationDefined _1;
-ImplementationDefined _2;
-ImplementationDefined _3;
-ImplementationDefined _4;
-ImplementationDefined _5;
-ImplementationDefined _6;
-ImplementationDefined _7;
-ImplementationDefined _8;
-ImplementationDefined _9;
-
-} // namespace sc_unnamed

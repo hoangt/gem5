@@ -27,14 +27,26 @@
  * Authors: Gabe Black
  */
 
-#ifndef __SYSTEMC_EXT_CHANNEL_WARN_UNIMPL_HH__
-#define __SYSTEMC_EXT_CHANNEL_WARN_UNIMPL_HH__
+#ifndef __SYSTEMC_EXT_DT_BIT_MESSAGES_HH__
+#define __SYSTEMC_EXT_DT_BIT_MESSAGES_HH__
 
 namespace sc_core
 {
 
-void sc_channel_warn_unimpl(const char *func);
+extern const char SC_ID_LENGTH_MISMATCH_[];
+extern const char SC_ID_INCOMPATIBLE_TYPES_[];
+extern const char SC_ID_CANNOT_CONVERT_[];
+extern const char SC_ID_INCOMPATIBLE_VECTORS_[];
+extern const char SC_ID_VALUE_NOT_VALID_[];
+extern const char SC_ID_ZERO_LENGTH_[];
+extern const char SC_ID_VECTOR_CONTAINS_LOGIC_VALUE_[];
+extern const char SC_ID_SC_BV_CANNOT_CONTAIN_X_AND_Z_[];
+extern const char SC_ID_VECTOR_TOO_LONG_[];
+extern const char SC_ID_VECTOR_TOO_SHORT_[];
+extern const char SC_ID_WRONG_VALUE_[];
+extern const char SC_ID_LOGIC_Z_TO_BOOL_[];
+extern const char SC_ID_LOGIC_X_TO_BOOL_[];
 
 } // namespace sc_core
 
-#endif  //__SYSTEMC_EXT_CHANNEL_WARN_UNIMPL_HH__
+#endif // __SYSTEMC_EXT_DT_BIT_MESSAGES_HH__

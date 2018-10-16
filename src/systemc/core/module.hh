@@ -68,6 +68,8 @@ class UniqueNameGen
     }
 };
 
+extern UniqueNameGen globalNameGen;
+
 class Module
 {
   private:
@@ -80,9 +82,14 @@ class Module
     UniqueNameGen nameGen;
 
   public:
-
     Module(const char *name);
     ~Module();
+
+    static Module *
+    fromScModule(::sc_core::sc_module *mod)
+    {
+        return mod->_gem5_module;
+    }
 
     void finish(Object *this_obj);
 
@@ -120,6 +127,8 @@ class Module
     std::vector<::sc_core::sc_port_base *> ports;
     std::vector<::sc_core::sc_export_base *> exports;
 
+    int bindingIndex;
+
     void beforeEndOfElaboration();
     void endOfElaboration();
     void startOfSimulation();
@@ -130,8 +139,26 @@ Module *currentModule();
 Module *newModuleChecked();
 Module *newModule();
 
-void callbackModule(Module *m);
-Module *callbackModule();
+static inline Module *
+pickParentModule()
+{
+    ::sc_core::sc_object *obj = pickParentObj();
+    auto mod = dynamic_cast<::sc_core::sc_module *>(obj);
+    if (!mod)
+        return nullptr;
+    return Module::fromScModule(mod);
+}
+static inline void
+pushParentModule(Module *m)
+{
+    pushParentObj(m->obj()->sc_obj());
+}
+static inline void
+popParentModule()
+{
+    assert(pickParentModule());
+    popParentObj();
+}
 
 extern std::list<Module *> allModules;
 

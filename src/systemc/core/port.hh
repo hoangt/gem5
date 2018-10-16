@@ -31,8 +31,10 @@
 #define __SYSTEMC_CORE_PORT_HH__
 
 #include <list>
+#include <typeinfo>
 #include <vector>
 
+#include "base/cprintf.hh"
 #include "systemc/ext/core/sc_interface.hh"
 #include "systemc/ext/core/sc_port.hh"
 
@@ -41,6 +43,7 @@ namespace sc_gem5
 
 class StaticSensitivityPort;
 class StaticSensitivityFinder;
+class Reset;
 
 class Port;
 
@@ -55,19 +58,24 @@ class Port
     int _maxSize;
     int _size;
 
+    bool regPortNeeded;
+
     void finalizePort(StaticSensitivityPort *port);
     void finalizeFinder(StaticSensitivityFinder *finder);
+    void finalizeReset(Reset *reset);
 
     void
-    addInterface(::sc_core::sc_interface *i)
+    addInterface(::sc_core::sc_interface *iface)
     {
+        portBase->_gem5AddInterface(iface);
         _size++;
-        portBase->_gem5AddInterface(i);
     }
 
     void
     addInterfaces(::sc_core::sc_port_base *pb)
     {
+        // Only the ports farthest from the interfaces call register_port.
+        pb->_gem5Port->regPortNeeded = false;
         for (int i = 0; i < pb->size(); i++)
             addInterface(pb->_gem5Interface(i));
     }
@@ -108,6 +116,7 @@ class Port
 
     std::vector<Binding *> bindings;
     std::vector<Sensitivity *> sensitivities;
+    std::vector<Reset *> resets;
 
   public:
     static Port *
@@ -119,15 +128,21 @@ class Port
     ::sc_core::sc_port_base *sc_port_base() { return portBase; }
 
     Port(::sc_core::sc_port_base *port_base, int max) :
-        portBase(port_base), finalized(false), _maxSize(max), _size(0)
+        portBase(port_base), finalized(false), _maxSize(max), _size(0),
+        regPortNeeded(true)
     {
         allPorts.push_front(this);
     }
 
+    ~Port() { allPorts.remove(this); }
+
     void
     bind(::sc_core::sc_interface *interface)
     {
-        bindings.push_back(new Binding(interface));
+        if (bindings.empty())
+            addInterface(interface);
+        else
+            bindings.push_back(new Binding(interface));
     }
 
     void
@@ -138,11 +153,13 @@ class Port
 
     void sensitive(StaticSensitivityPort *port);
     void sensitive(StaticSensitivityFinder *finder);
+    void addReset(Reset *reset);
 
     void finalize();
+    void regPort();
 
     int size() { return _size; }
-    int maxSize() { return _maxSize; }
+    int maxSize() { return _maxSize ? _maxSize : _size; }
 };
 
 } // namespace sc_gem5

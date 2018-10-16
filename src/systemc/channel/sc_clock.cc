@@ -35,9 +35,11 @@
 #include "systemc/core/process_types.hh"
 #include "systemc/core/sched_event.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/channel/messages.hh"
 #include "systemc/ext/channel/sc_clock.hh"
 #include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_module.hh" // for sc_gen_unique_name
+#include "systemc/ext/utils/sc_report_handler.hh"
 
 namespace sc_gem5
 {
@@ -108,6 +110,27 @@ sc_clock::sc_clock(const char *name, const sc_time &period,
     _period(period), _dutyCycle(duty_cycle), _startTime(start_time),
     _posedgeFirst(posedge_first)
 {
+    if (period == SC_ZERO_TIME) {
+        std::string msg =
+            "increase the period: clock '" +
+            std::string(name) + "'";
+        SC_REPORT_ERROR(SC_ID_CLOCK_PERIOD_ZERO_, msg.c_str());
+    }
+
+    if (duty_cycle * period == SC_ZERO_TIME) {
+        std::string msg =
+            "increase the period or increase the duty cycle: clock '" +
+            std::string(name) + "'";
+        SC_REPORT_ERROR(SC_ID_CLOCK_HIGH_TIME_ZERO_, msg.c_str());
+    }
+
+    if (duty_cycle * period == period) {
+        std::string msg =
+            "increase the period or decrease the duty cycle: clock '" +
+            std::string(name) + "'";
+        SC_REPORT_ERROR(SC_ID_CLOCK_LOW_TIME_ZERO_, msg.c_str());
+    }
+
     _gem5UpEdge = new ::sc_gem5::ClockTick(this, true, period);
     _gem5DownEdge = new ::sc_gem5::ClockTick(this, false, period);
 }

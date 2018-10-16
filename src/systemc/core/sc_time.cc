@@ -30,11 +30,12 @@
 #include <sstream>
 #include <vector>
 
-#include "base/logging.hh"
 #include "base/types.hh"
 #include "python/pybind11/pybind.hh"
 #include "sim/core.hh"
 #include "systemc/core/python.hh"
+#include "systemc/core/time.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_main.hh"
 #include "systemc/ext/core/sc_time.hh"
 #include "systemc/ext/utils/sc_report_handler.hh"
@@ -44,33 +45,6 @@ namespace sc_core
 
 namespace
 {
-
-const char *TimeUnitNames[] = {
-    [SC_FS] = "fs",
-    [SC_PS] = "ps",
-    [SC_NS] = "ns",
-    [SC_US] = "us",
-    [SC_MS] = "ms",
-    [SC_SEC] = "s"
-};
-
-double TimeUnitScale[] = {
-    [SC_FS] = 1.0e-15,
-    [SC_PS] = 1.0e-12,
-    [SC_NS] = 1.0e-9,
-    [SC_US] = 1.0e-6,
-    [SC_MS] = 1.0e-3,
-    [SC_SEC] = 1.0
-};
-
-Tick TimeUnitFrequency[] = {
-    [SC_FS] = 1ULL * 1000 * 1000 * 1000 * 1000 * 1000,
-    [SC_PS] = 1ULL * 1000 * 1000 * 1000 * 1000,
-    [SC_NS] = 1ULL * 1000 * 1000 * 1000,
-    [SC_US] = 1ULL * 1000 * 1000,
-    [SC_MS] = 1ULL * 1000,
-    [SC_SEC] = 1ULL
-};
 
 bool timeFixed = false;
 bool pythonReady = false;
@@ -90,7 +64,7 @@ std::vector<SetInfo> toSet;
 void
 setWork(sc_time *time, double d, ::sc_core::sc_time_unit tu)
 {
-    double scale = TimeUnitScale[tu] * SimClock::Float::s;
+    double scale = sc_gem5::TimeUnitScale[tu] * SimClock::Float::s;
     // Accellera claims there is a linux bug, and that these next two
     // lines work around them.
     volatile double tmp = d * scale + 0.5;
@@ -177,6 +151,24 @@ sc_time::sc_time(double d, sc_time_unit tu)
 sc_time::sc_time(const sc_time &t)
 {
     val = t.val;
+}
+
+sc_time::sc_time(double d, const char *unit)
+{
+    sc_time_unit tu;
+    for (tu = SC_FS; tu <= SC_SEC; tu = (sc_time_unit)(tu + 1)) {
+        if (strcmp(unit, sc_gem5::TimeUnitNames[tu]) == 0 ||
+            strcmp(unit, sc_gem5::TimeUnitConstantNames[tu]) == 0) {
+            break;
+        }
+    }
+
+    if (tu > SC_SEC) {
+        SC_REPORT_ERROR(SC_ID_TIME_CONVERSION_FAILED_,"invalid unit given");
+        val = 0;
+        return;
+    }
+    set(this, d, tu);
 }
 
 sc_time::sc_time(double d, bool scale)
@@ -290,40 +282,7 @@ sc_time::operator /= (double d)
 void
 sc_time::print(std::ostream &os) const
 {
-    if (val == 0) {
-        os << "0 s";
-    } else {
-        Tick frequency = SimClock::Frequency;
-
-        // Shrink the frequency by scaling down the time period, ie converting
-        // it from cycles per second to cycles per millisecond, etc.
-        sc_time_unit tu = SC_SEC;
-        while (tu > 1 && (frequency % 1000 == 0)) {
-            tu = (sc_time_unit)((int)tu - 1);
-            frequency /= 1000;
-        }
-
-        // Convert the frequency into a period.
-        Tick period;
-        if (frequency > 1) {
-            tu = (sc_time_unit)((int)tu - 1);
-            period = 1000 / frequency;
-        } else {
-            period = frequency;
-        }
-
-        // Scale our integer value by the period.
-        uint64_t scaled = val * period;
-
-        // Shrink the scaled time value by increasing the size of the units
-        // it's measured by, avoiding fractional parts.
-        while (tu < SC_SEC && (scaled % 1000) == 0) {
-            tu = (sc_time_unit)((int)tu + 1);
-            scaled /= 1000;
-        }
-
-        os << scaled << ' ' << TimeUnitNames[tu];
-    }
+    os << sc_time_tuple(*this).to_string();
 }
 
 sc_time
@@ -347,8 +306,18 @@ sc_time::from_seconds(double d)
 sc_time
 sc_time::from_string(const char *str)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return sc_time();
+    char *end = nullptr;
+
+    double d = str ? std::strtod(str, &end) : 0.0;
+    if (str == end || d < 0.0) {
+        SC_REPORT_ERROR(SC_ID_TIME_CONVERSION_FAILED_, "invalid value given");
+        return SC_ZERO_TIME;
+    }
+
+    while (*end && std::isspace(*end))
+        end++;
+
+    return sc_time(d, end);
 }
 
 const sc_time
@@ -402,40 +371,34 @@ const sc_time SC_ZERO_TIME;
 void
 sc_set_time_resolution(double d, sc_time_unit tu)
 {
-    if (d <= 0.0) {
-        SC_REPORT_ERROR("(E514) set time resolution failed",
-                "value not positive");
-    }
+    if (d <= 0.0)
+        SC_REPORT_ERROR(SC_ID_SET_TIME_RESOLUTION_, "value not positive");
+
     double dummy;
     if (modf(log10(d), &dummy) != 0.0) {
-        SC_REPORT_ERROR("(E514) set time resolution failed",
+        SC_REPORT_ERROR(SC_ID_SET_TIME_RESOLUTION_,
                 "value not a power of ten");
     }
-    if (sc_is_running()) {
-        SC_REPORT_ERROR("(E514) set time resolution failed",
-                "simulation running");
-    }
+    if (sc_is_running())
+        SC_REPORT_ERROR(SC_ID_SET_TIME_RESOLUTION_, "simulation running");
+
     static bool specified = false;
-    if (specified) {
-        SC_REPORT_ERROR("(E514) set time resolution failed",
-                "already specified");
-    }
+    if (specified)
+        SC_REPORT_ERROR(SC_ID_SET_TIME_RESOLUTION_, "already specified");
+
     // This won't detect the timescale being fixed outside of systemc, but
     // it's at least some protection.
     if (timeFixed) {
-        SC_REPORT_ERROR("(E514) set time resolution failed",
+        SC_REPORT_ERROR(SC_ID_SET_TIME_RESOLUTION_,
                 "sc_time object(s) constructed");
     }
 
-    double seconds = d * TimeUnitScale[tu];
-    if (seconds < TimeUnitScale[SC_FS]) {
-        SC_REPORT_ERROR("(E514) set time resolution failed",
-                "value smaller than 1 fs");
-    }
+    double seconds = d * sc_gem5::TimeUnitScale[tu];
+    if (seconds < sc_gem5::TimeUnitScale[SC_FS])
+        SC_REPORT_ERROR(SC_ID_SET_TIME_RESOLUTION_, "value smaller than 1 fs");
 
     if (seconds > defaultUnit) {
-        SC_REPORT_WARNING(
-                "(W516) default time unit changed to time resolution", "");
+        SC_REPORT_WARNING(SC_ID_DEFAULT_TIME_UNIT_CHANGED_, "");
         defaultUnit = seconds;
     }
 
@@ -445,7 +408,8 @@ sc_set_time_resolution(double d, sc_time_unit tu)
         tu = (sc_time_unit)(tu - 1);
     }
 
-    Tick ticks_per_second = TimeUnitFrequency[tu] / static_cast<Tick>(d);
+    Tick ticks_per_second =
+        sc_gem5::TimeUnitFrequency[tu] / static_cast<Tick>(d);
     setGlobalFrequency(ticks_per_second);
     specified = true;
 }
@@ -466,34 +430,39 @@ sc_max_time()
 void
 sc_set_default_time_unit(double d, sc_time_unit tu)
 {
-    if (d < 0.0) {
-        SC_REPORT_ERROR("(E515) set default time unit failed",
-                "value not positive");
-    }
+    if (d < 0.0)
+        SC_REPORT_ERROR(SC_ID_SET_DEFAULT_TIME_UNIT_, "value not positive");
+
     double dummy;
     if (modf(log10(d), &dummy) != 0.0) {
-        SC_REPORT_ERROR("(E515) set default time unit failed",
+        SC_REPORT_ERROR(SC_ID_SET_DEFAULT_TIME_UNIT_,
                 "value not a power of ten");
     }
-    if (sc_is_running()) {
-        SC_REPORT_ERROR("(E515) set default time unit failed",
-                "simulation running");
-    }
+    if (sc_is_running())
+        SC_REPORT_ERROR(SC_ID_SET_DEFAULT_TIME_UNIT_, "simulation running");
+
     static bool specified = false;
     if (specified) {
-        SC_REPORT_ERROR("(E515) set default time unit failed",
-                "already specified");
+        SC_REPORT_ERROR(SC_ID_SET_DEFAULT_TIME_UNIT_, "already specified");
     }
     // This won't detect the timescale being fixed outside of systemc, but
     // it's at least some protection.
     if (timeFixed) {
-        SC_REPORT_ERROR("(E515) set default time unit failed",
+        SC_REPORT_ERROR(SC_ID_SET_DEFAULT_TIME_UNIT_,
                 "sc_time object(s) constructed");
     }
 
     // Normalize d to seconds.
-    defaultUnit = d * TimeUnitScale[tu];
+    defaultUnit = d * sc_gem5::TimeUnitScale[tu];
     specified = true;
+
+    double resolution = SimClock::Float::Hz;
+    if (resolution == 0.0)
+        resolution = sc_gem5::TimeUnitScale[SC_PS];
+    if (defaultUnit < resolution) {
+        SC_REPORT_ERROR(SC_ID_SET_DEFAULT_TIME_UNIT_,
+                "value smaller than time resolution");
+    }
 }
 
 sc_time
@@ -502,44 +471,63 @@ sc_get_default_time_unit()
     return sc_time(defaultUnit, SC_SEC);
 }
 
-sc_time_tuple::sc_time_tuple(const sc_time &)
+sc_time_tuple::sc_time_tuple(const sc_time &t) :
+    _value(), _unit(SC_SEC), _set(true)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    if (!t.value())
+        return;
+
+    Tick frequency = SimClock::Frequency;
+
+    // Shrink the frequency by scaling down the time period, ie converting
+    // it from cycles per second to cycles per millisecond, etc.
+    while (_unit > 1 && (frequency % 1000 == 0)) {
+        _unit = (sc_time_unit)((int)_unit - 1);
+        frequency /= 1000;
+    }
+
+    // Convert the frequency into a period.
+    Tick period;
+    if (frequency > 1) {
+        _unit = (sc_time_unit)((int)_unit - 1);
+        period = 1000 / frequency;
+    } else {
+        period = frequency;
+    }
+
+    // Scale our integer value by the period.
+    _value = t.value() * period;
+
+    // Shrink the scaled time value by increasing the size of the units
+    // it's measured by, avoiding fractional parts.
+    while (_unit < SC_SEC && (_value % 1000) == 0) {
+        _unit = (sc_time_unit)((int)_unit + 1);
+        _value /= 1000;
+    }
 }
 
 bool
 sc_time_tuple::has_value() const
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return false;
+    return _set;
 }
 
-sc_dt::uint64
-sc_time_tuple::value() const
-{
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return 0;
-}
+sc_dt::uint64 sc_time_tuple::value() const { return _value; }
 
 const char *
 sc_time_tuple::unit_symbol() const
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return "";
+    return sc_gem5::TimeUnitNames[_unit];
 }
 
-double
-sc_time_tuple::to_double() const
-{
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return 0.0;
-}
+double sc_time_tuple::to_double() const { return static_cast<double>(_value); }
 
 std::string
 sc_time_tuple::to_string() const
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return "";
+    std::ostringstream ss;
+    ss << _value << ' ' << unit_symbol();
+    return ss.str();
 }
 
 } // namespace sc_core

@@ -27,9 +27,10 @@
  * Authors: Gabe Black
  */
 
-#include "base/logging.hh"
+#include "base/cprintf.hh"
 #include "systemc/core/module.hh"
 #include "systemc/core/scheduler.hh"
+#include "systemc/ext/channel/messages.hh"
 #include "systemc/ext/core/sc_export.hh"
 #include "systemc/ext/core/sc_main.hh"
 
@@ -57,21 +58,17 @@ reportError(const char *id, const char *add_msg,
 sc_export_base::sc_export_base(const char *n) : sc_object(n)
 {
     if (sc_is_running()) {
-        reportError("(E121) insert sc_export failed", "simulation running",
-                n, kind());
+        reportError(SC_ID_INSERT_EXPORT_, "simulation running",
+                name(), kind());
     }
-    if (::sc_gem5::scheduler.elaborationDone()) {
-        reportError("(E121) insert sc_export failed", "elaboration done",
-                n, kind());
-    }
+    if (::sc_gem5::scheduler.elaborationDone())
+        reportError(SC_ID_INSERT_EXPORT_, "elaboration done", name(), kind());
 
-    ::sc_gem5::Module *m = ::sc_gem5::currentModule();
-    if (!m) {
-        reportError("(E122) sc_export specified outside of module",
-                nullptr, n, kind());
-    } else {
+    auto m = sc_gem5::pickParentModule();
+    if (!m)
+        reportError(SC_ID_EXPORT_OUTSIDE_MODULE_, nullptr, name(), kind());
+    else
         m->exports.push_back(this);
-    }
 }
 sc_export_base::~sc_export_base() {}
 

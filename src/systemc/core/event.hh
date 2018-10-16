@@ -60,8 +60,9 @@ class Sensitivity;
 class Event
 {
   public:
-    Event(sc_core::sc_event *_sc_event);
-    Event(sc_core::sc_event *_sc_event, const char *_basename);
+    Event(sc_core::sc_event *_sc_event, bool internal=false);
+    Event(sc_core::sc_event *_sc_event, const char *_basename,
+            bool internal=false);
 
     ~Event();
 
@@ -82,9 +83,11 @@ class Event
     {
         notify(sc_core::sc_time(d, u));
     }
+    void notifyDelayed(const sc_core::sc_time &t);
     void cancel();
 
     bool triggered() const;
+    uint64_t triggeredStamp() const { return _triggeredStamp; }
 
     static Event *
     getFromScEvent(sc_core::sc_event *e)
@@ -137,6 +140,8 @@ class Event
         }
     }
 
+    void clearParent();
+
   private:
     sc_core::sc_event *_sc_event;
 
@@ -147,6 +152,7 @@ class Event
     sc_core::sc_object *parent;
 
     ScEvent delayedNotify;
+    mutable uint64_t _triggeredStamp;
 
     mutable StaticSensitivities staticSenseMethod;
     mutable StaticSensitivities staticSenseThread;

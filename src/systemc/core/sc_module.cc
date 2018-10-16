@@ -31,11 +31,18 @@
 #include <string>
 #include <vector>
 
-#include "base/logging.hh"
+#include "systemc/core/event.hh"
 #include "systemc/core/kernel.hh"
 #include "systemc/core/module.hh"
+#include "systemc/core/object.hh"
+#include "systemc/core/port.hh"
 #include "systemc/core/process_types.hh"
+#include "systemc/core/sensitivity.hh"
+#include "systemc/ext/channel/sc_in.hh"
+#include "systemc/ext/channel/sc_inout.hh"
+#include "systemc/ext/channel/sc_out.hh"
 #include "systemc/ext/channel/sc_signal_in_if.hh"
+#include "systemc/ext/core/messages.hh"
 #include "systemc/ext/core/sc_module.hh"
 #include "systemc/ext/core/sc_module_name.hh"
 #include "systemc/ext/dt/bit/sc_logic.hh"
@@ -51,8 +58,8 @@ newMethodProcess(const char *name, ProcessFuncWrapper *func)
     if (::sc_core::sc_is_running()) {
         std::string name = p->name();
         delete p;
-        SC_REPORT_ERROR("(E541) call to SC_METHOD in sc_module while "
-                "simulation running", name.c_str());
+        SC_REPORT_ERROR(sc_core::SC_ID_MODULE_METHOD_AFTER_START_,
+                name.c_str());
         return nullptr;
     }
     scheduler.reg(p);
@@ -66,8 +73,8 @@ newThreadProcess(const char *name, ProcessFuncWrapper *func)
     if (::sc_core::sc_is_running()) {
         std::string name = p->name();
         delete p;
-        SC_REPORT_ERROR("(E542) call to SC_THREAD in sc_module while "
-                "simulation running", name.c_str());
+        SC_REPORT_ERROR(sc_core::SC_ID_MODULE_THREAD_AFTER_START_,
+                name.c_str());
         return nullptr;
     }
     scheduler.reg(p);
@@ -81,16 +88,14 @@ newCThreadProcess(const char *name, ProcessFuncWrapper *func)
     if (::sc_core::sc_is_running()) {
         std::string name = p->name();
         delete p;
-        SC_REPORT_ERROR("(E543) call to SC_CTHREAD in sc_module while "
-                "simulation running", name.c_str());
+        SC_REPORT_ERROR(sc_core::SC_ID_MODULE_CTHREAD_AFTER_START_,
+                name.c_str());
         return nullptr;
     }
     scheduler.reg(p);
     p->dontInitialize(true);
     return p;
 }
-
-UniqueNameGen nameGen;
 
 } // namespace sc_gem5
 
@@ -203,6 +208,34 @@ sc_module::operator () (const sc_bind_proxy &p001,
     _gem5_module->bindPorts(proxies);
 }
 
+sc_module &
+sc_module::operator << (sc_interface &iface)
+{
+    (*this)(iface);
+    return *this;
+}
+
+sc_module &
+sc_module::operator << (sc_port_base &pb)
+{
+    (*this)(pb);
+    return *this;
+}
+
+sc_module &
+sc_module::operator , (sc_interface &iface)
+{
+    (*this)(iface);
+    return *this;
+}
+
+sc_module &
+sc_module::operator , (sc_port_base &pb)
+{
+    (*this)(pb);
+    return *this;
+}
+
 const std::vector<sc_object *> &
 sc_module::get_child_objects() const
 {
@@ -218,23 +251,24 @@ sc_module::get_child_events() const
 sc_module::sc_module() :
     sc_object(sc_gem5::newModuleChecked()->name()),
     _gem5_module(sc_gem5::currentModule())
-{}
+{
+    if (sc_is_running())
+        SC_REPORT_ERROR(SC_ID_INSERT_MODULE_, "simulation running");
+    if (::sc_gem5::scheduler.elaborationDone())
+        SC_REPORT_ERROR(SC_ID_INSERT_MODULE_, "elaboration done");
+}
 
 sc_module::sc_module(const sc_module_name &) : sc_module() {}
 sc_module::sc_module(const char *_name) : sc_module(sc_module_name(_name))
 {
     _gem5_module->deprecatedConstructor();
-    SC_REPORT_WARNING("(W569) sc_module(const char*), "
-            "sc_module(const std::string&) have been deprecated, use "
-            "sc_module(const sc_module_name&)", _name);
+    SC_REPORT_WARNING(SC_ID_BAD_SC_MODULE_CONSTRUCTOR_, _name);
 }
 sc_module::sc_module(const std::string &_name) :
     sc_module(sc_module_name(_name.c_str()))
 {
     _gem5_module->deprecatedConstructor();
-    SC_REPORT_WARNING("(W569) sc_module(const char*), "
-            "sc_module(const std::string&) have been deprecated, use "
-            "sc_module(const sc_module_name&)", _name.c_str());
+    SC_REPORT_WARNING(SC_ID_BAD_SC_MODULE_CONSTRUCTOR_, _name.c_str());
 }
 
 void
@@ -244,59 +278,62 @@ sc_module::end_module()
 }
 
 void
-sc_module::reset_signal_is(const sc_in<bool> &, bool)
+sc_module::reset_signal_is(const sc_in<bool> &port, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&port, ::sc_gem5::Process::newest(), true, val);
 }
 
 void
-sc_module::reset_signal_is(const sc_inout<bool> &, bool)
+sc_module::reset_signal_is(const sc_inout<bool> &port, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&port, ::sc_gem5::Process::newest(), true, val);
 }
 
 void
-sc_module::reset_signal_is(const sc_out<bool> &, bool)
+sc_module::reset_signal_is(const sc_out<bool> &port, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&port, ::sc_gem5::Process::newest(), true, val);
 }
 
 void
-sc_module::reset_signal_is(const sc_signal_in_if<bool> &, bool)
+sc_module::reset_signal_is(const sc_signal_in_if<bool> &signal, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&signal, ::sc_gem5::Process::newest(), true, val);
 }
 
 
 void
-sc_module::async_reset_signal_is(const sc_in<bool> &, bool)
+sc_module::async_reset_signal_is(const sc_in<bool> &port, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&port, ::sc_gem5::Process::newest(), false, val);
 }
 
 void
-sc_module::async_reset_signal_is(const sc_inout<bool> &, bool)
+sc_module::async_reset_signal_is(const sc_inout<bool> &port, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&port, ::sc_gem5::Process::newest(), false, val);
 }
 
 void
-sc_module::async_reset_signal_is(const sc_out<bool> &, bool)
+sc_module::async_reset_signal_is(const sc_out<bool> &port, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&port, ::sc_gem5::Process::newest(), false, val);
 }
 
 void
-sc_module::async_reset_signal_is(const sc_signal_in_if<bool> &, bool)
+sc_module::async_reset_signal_is(const sc_signal_in_if<bool> &signal, bool val)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
+    ::sc_gem5::newReset(&signal, ::sc_gem5::Process::newest(), false, val);
 }
 
 
 void
 sc_module::dont_initialize()
 {
-    ::sc_gem5::Process::newest()->dontInitialize(true);
+    ::sc_gem5::Process *p = ::sc_gem5::Process::newest();
+    if (p->procKind() == SC_CTHREAD_PROC_)
+        SC_REPORT_WARNING(SC_ID_DONT_INITIALIZE_, "");
+    p->dontInitialize(true);
 }
 
 void
@@ -591,10 +628,28 @@ timed_out()
 }
 
 
+namespace
+{
+
+bool
+waitErrorCheck(sc_gem5::Process *p)
+{
+    if (p->procKind() == SC_METHOD_PROC_) {
+        SC_REPORT_ERROR(SC_ID_WAIT_NOT_ALLOWED_,
+                "\n        in SC_METHODs use next_trigger() instead");
+        return true;
+    }
+    return false;
+}
+
+} // anonymous namespace
+
 void
 wait()
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->cancelTimeout();
     p->clearDynamic();
     sc_gem5::scheduler.yield();
@@ -605,16 +660,19 @@ wait(int n)
 {
     if (n <= 0) {
         std::string msg = csprintf("n = %d", n);
-        SC_REPORT_ERROR("(E525) wait(n) is only valid for n > 0", msg.c_str());
+        SC_REPORT_ERROR(SC_ID_WAIT_N_INVALID_, msg.c_str());
     }
-    for (int i = 0; i < n; i++)
-        wait();
+    sc_gem5::Process *p = sc_gem5::scheduler.current();
+    p->waitCount(n - 1);
+    wait();
 }
 
 void
 wait(const sc_event &e)
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->cancelTimeout();
     ::sc_gem5::newDynamicSensitivityEvent(p, &e);
     sc_gem5::scheduler.yield();
@@ -624,6 +682,8 @@ void
 wait(const sc_event_or_list &eol)
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->cancelTimeout();
     ::sc_gem5::newDynamicSensitivityEventOrList(p, &eol);
     sc_gem5::scheduler.yield();
@@ -633,6 +693,8 @@ void
 wait(const sc_event_and_list &eal)
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->cancelTimeout();
     ::sc_gem5::newDynamicSensitivityEventAndList(p, &eal);
     sc_gem5::scheduler.yield();
@@ -642,6 +704,8 @@ void
 wait(const sc_time &t)
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->setTimeout(t);
     p->clearDynamic();
     sc_gem5::scheduler.yield();
@@ -657,6 +721,8 @@ void
 wait(const sc_time &t, const sc_event &e)
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->setTimeout(t);
     ::sc_gem5::newDynamicSensitivityEvent(p, &e);
     sc_gem5::scheduler.yield();
@@ -672,6 +738,8 @@ void
 wait(const sc_time &t, const sc_event_or_list &eol)
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->setTimeout(t);
     ::sc_gem5::newDynamicSensitivityEventOrList(p, &eol);
     sc_gem5::scheduler.yield();
@@ -687,6 +755,8 @@ void
 wait(const sc_time &t, const sc_event_and_list &eal)
 {
     sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (waitErrorCheck(p))
+        return;
     p->setTimeout(t);
     ::sc_gem5::newDynamicSensitivityEventAndList(p, &eal);
     sc_gem5::scheduler.yield();
@@ -744,16 +814,27 @@ at_negedge(const sc_signal_in_if<sc_dt::sc_logic> &s)
 const char *
 sc_gen_unique_name(const char *seed)
 {
-    ::sc_gem5::Module *mod = ::sc_gem5::currentModule();
-    return mod ? mod->uniqueName(seed) :
-        ::sc_gem5::nameGen.gen(seed);
+    if (!seed || seed[0] == '\0') {
+        SC_REPORT_ERROR(SC_ID_GEN_UNIQUE_NAME_, "");
+        seed = "unnamed";
+    }
+
+    auto mod = sc_gem5::pickParentModule();
+    if (mod)
+        return mod->uniqueName(seed);
+
+    sc_gem5::Process *p = sc_gem5::scheduler.current();
+    if (p)
+        return p->uniqueName(seed);
+
+    return ::sc_gem5::globalNameGen.gen(seed);
 }
 
 bool
 sc_hierarchical_name_exists(const char *name)
 {
-    warn("%s not implemented.\n", __PRETTY_FUNCTION__);
-    return false;
+    return sc_gem5::findEvent(name) != sc_gem5::allEvents.end() ||
+        ::sc_gem5::findObject(name, sc_gem5::allObjects);
 }
 
 bool
