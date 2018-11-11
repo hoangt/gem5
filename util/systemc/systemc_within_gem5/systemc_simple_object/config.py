@@ -1,14 +1,4 @@
-# Copyright (c) 2012-2014 ARM Limited
-# All rights reserved
-#
-# The license below extends only to copyright in the software and shall
-# not be construed as granting a license to any other intellectual
-# property including but not limited to intellectual property relating
-# to a hardware implementation of the functionality of the software
-# licensed hereunder.  You may use the software subject to the license
-# terms below provided that you ensure that this notice is replicated
-# unmodified and in its entirety in all distributions of the software,
-# modified or unmodified, in source code or in binary form.
+# Copyright 2018 Google, Inc.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -33,38 +23,37 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Andrew Bardsley
+# Authors: Gabe Black
 
-ARCH = ARM
-VARIANT = opt
+from __future__ import print_function
 
-SYSTEMC_INC = ./systemc/include
-SYSTEMC_LIB = ./systemc/lib-linux64
+import argparse
+import m5
+import sys
 
-CXXFLAGS = -I../../build/$(ARCH) -L../../build/$(ARCH)
-CXXFLAGS += -I$(SYSTEMC_INC) -L$(SYSTEMC_LIB)
-CXXFLAGS += -std=c++0x
-CXXFLAGS += -g
-LIBS = -lgem5_$(VARIANT) -lsystemc
+from m5.objects import SystemC_Kernel, Root, SystemC_Printer, Gem5_Feeder
 
-ALL = gem5.$(VARIANT).sc
+# pylint:disable=unused-variable
 
-all: $(ALL)
+parser = argparse.ArgumentParser()
+parser.add_argument('--word', action="append", default=[])
+parser.add_argument('--delay', default='1ns')
+parser.add_argument('--prefix', default='')
 
-.cc.o:
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+args = parser.parse_args()
 
-sc_gem5_control.o: sc_gem5_control.cc sc_gem5_control.hh
-sc_logger.o: sc_logger.cc sc_logger.hh
-sc_module.o: sc_module.cc sc_module.hh
-stats.o: stats.cc stats.hh
-main.o: main.cc sc_logger.hh sc_module.hh stats.hh
+printer = SystemC_Printer()
+printer.prefix = args.prefix
 
-gem5.$(VARIANT).sc: main.o stats.o \
-	sc_gem5_control.o sc_logger.o sc_module.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
+feeder = Gem5_Feeder()
+feeder.printer = printer
+feeder.delay = args.delay
+feeder.strings = args.word
 
-clean:
-	$(RM) $(ALL)
-	$(RM) *.o
-	$(RM) -r m5out
+kernel = SystemC_Kernel(feeder=feeder)
+root = Root(full_system=True, systemc_kernel=kernel)
+
+m5.instantiate(None)
+
+cause = m5.simulate(m5.MaxTick).getCause()
+print(cause)

@@ -118,7 +118,7 @@ BaseCache::BaseCache(const BaseCacheParams *p, unsigned blk_size)
 
     tempBlock = new TempCacheBlk(blkSize);
 
-    tags->init(this);
+    tags->tagsInit(this);
     if (prefetcher)
         prefetcher->setCache(this);
 }
@@ -861,10 +861,9 @@ BaseCache::satisfyRequest(PacketPtr pkt, CacheBlk *blk, bool, bool)
         if (pkt->isAtomicOp()) {
             // extract data from cache and save it into the data field in
             // the packet as a return value from this atomic op
-
             int offset = tags->extractBlkOffset(pkt->getAddr());
             uint8_t *blk_data = blk->data + offset;
-            std::memcpy(pkt->getPtr<uint8_t>(), blk_data, pkt->getSize());
+            pkt->setData(blk_data);
 
             // execute AMO operation
             (*(pkt->getAtomicOp()))(blk_data);
@@ -1305,9 +1304,13 @@ BaseCache::allocateBlock(const PacketPtr pkt, PacketList &writebacks)
 void
 BaseCache::invalidateBlock(CacheBlk *blk)
 {
-    if (blk != tempBlock)
+    // If handling a block present in the Tags, let it do its invalidation
+    // process, which will update stats and invalidate the block itself
+    if (blk != tempBlock) {
         tags->invalidate(blk);
-    blk->invalidate();
+    } else {
+        tempBlock->invalidate();
+    }
 }
 
 void
@@ -1663,7 +1666,7 @@ BaseCache::regStats()
 
 // should writebacks be included here?  prior code was inconsistent...
 #define SUM_NON_DEMAND(s) \
-    (s[MemCmd::SoftPFReq] + s[MemCmd::HardPFReq])
+    (s[MemCmd::SoftPFReq] + s[MemCmd::HardPFReq] + s[MemCmd::SoftPFExReq])
 
     demandHits
         .name(name() + ".demand_hits")
