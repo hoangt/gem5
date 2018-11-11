@@ -597,6 +597,7 @@ def run(options, root, testsys, cpu_class):
     checkpoint_dir = None
     if options.checkpoint_restore:
         cpt_starttick, checkpoint_dir = findCptDir(options, cptdir, testsys)
+    root.apply_config(options.param)
     m5.instantiate(checkpoint_dir)
 
     # Initialization is complete.  If we're not in control of simulation
@@ -716,5 +717,5 @@ def run(options, root, testsys, cpu_class):
     if options.checkpoint_at_end:
         m5.checkpoint(joinpath(cptdir, "cpt.%d"))
 
-    if not m5.options.interactive:
-        sys.exit(exit_event.getCode())
+    if exit_event.getCode() != 0:
+        print("Simulated exit code not 0! Exit code is", exit_event.getCode())

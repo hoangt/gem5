@@ -48,6 +48,7 @@ if env['USE_PNG']:
     Source('pngwriter.cc')
 Source('fiber.cc')
 GTest('fibertest', 'fibertest.cc', 'fiber.cc')
+GTest('coroutinetest', 'coroutinetest.cc', 'fiber.cc')
 Source('framebuffer.cc')
 Source('hostinfo.cc')
 Source('inet.cc')
@@ -81,7 +82,10 @@ Source('loader/symtab.cc')
 
 Source('stats/text.cc')
 
+GTest('addr_range_test', 'addr_range_test.cc')
+GTest('AddrRangeMapTest', 'addr_range_map_test.cc')
 GTest('bituniontest', 'bituniontest.cc')
+GTest('CircleBufTest', 'circlebuftest.cc')
 
 DebugFlag('Annotate', "State machine annotation debugging")
 DebugFlag('AnnotateQ', "State machine annotation queue debugging")
