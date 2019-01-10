@@ -95,8 +95,8 @@ class TAGE(BranchPredictor):
     cxx_header = "cpu/pred/tage.hh"
 
     nHistoryTables = Param.Unsigned(7, "Number of history tables")
-    minHist = Param.Unsigned(5, "Minimum history size of LTAGE")
-    maxHist = Param.Unsigned(130, "Maximum history size of LTAGE")
+    minHist = Param.Unsigned(5, "Minimum history size of TAGE")
+    maxHist = Param.Unsigned(130, "Maximum history size of TAGE")
 
     tagTableTagWidths = VectorParam.Unsigned(
         [0, 9, 9, 10, 10, 11, 11, 12], "Tag size in TAGE tag tables")
@@ -142,4 +142,20 @@ class LTAGE(TAGE):
     loopTableTagBits = Param.Unsigned(14, "Number of tag bits per loop entry")
     loopTableIterBits = Param.Unsigned(14, "Nuber of iteration bits per loop")
     logLoopTableAssoc = Param.Unsigned(2, "Log loop predictor associativity")
+
+    # Parameters for enabling modifications to the loop predictor
+    # They have been copied from ISL-TAGE
+    # (https://www.jilp.org/jwac-2/program/03_seznec.tgz)
+    #
+    # All of them should be disabled to match the original LTAGE implementation
+    # (http://hpca23.cse.tamu.edu/taco/camino/cbp2/cbp-src/realistic-seznec.h)
+
+    # Add speculation
+    useSpeculation = Param.Bool(False, "Use speculation")
+
+    # Add hashing for calculating the loop table index
+    useHashing = Param.Bool(False, "Use hashing")
+
+    # Add a direction bit to the loop table entries
+    useDirectionBit = Param.Bool(False, "Use direction info")
 

@@ -89,7 +89,7 @@ ISA::ISA(Params *p)
     } else {
         highestELIs64 = true; // ArmSystem::highestELIs64 does the same
         haveSecurity = haveLPAE = haveVirtualization = false;
-        haveCrypto = false;
+        haveCrypto = true;
         haveLargeAsid64 = false;
         physAddrRange = 32;  // dummy value
     }
@@ -315,6 +315,10 @@ ISA::initID32(const ArmISAParams *p)
     miscRegs[MISCREG_ID_MMFR1] = p->id_mmfr1;
     miscRegs[MISCREG_ID_MMFR2] = p->id_mmfr2;
     miscRegs[MISCREG_ID_MMFR3] = p->id_mmfr3;
+
+    miscRegs[MISCREG_ID_ISAR5] = insertBits(
+        miscRegs[MISCREG_ID_ISAR5], 19, 4,
+        haveCrypto ? 0x1112 : 0x0);
 }
 
 void
@@ -655,16 +659,6 @@ ISA::readMiscReg(int misc_reg, ThreadContext *tc)
         return readMiscRegNoEffect(MISCREG_DFAR_S);
       case MISCREG_HIFAR: // alias for secure IFAR
         return readMiscRegNoEffect(MISCREG_IFAR_S);
-      case MISCREG_HVBAR: // bottom bits reserved
-        return readMiscRegNoEffect(MISCREG_HVBAR) & 0xFFFFFFE0;
-      case MISCREG_SCTLR:
-        return (readMiscRegNoEffect(misc_reg) & 0x72DD39FF) | 0x00C00818;
-      case MISCREG_SCTLR_EL1:
-        return (readMiscRegNoEffect(misc_reg) & 0x37DDDBBF) | 0x30D00800;
-      case MISCREG_SCTLR_EL2:
-      case MISCREG_SCTLR_EL3:
-      case MISCREG_HSCTLR:
-        return (readMiscRegNoEffect(misc_reg) & 0x32CD183F) | 0x30C50830;
 
       case MISCREG_ID_PFR0:
         // !ThumbEE | !Jazelle | Thumb | ARM
