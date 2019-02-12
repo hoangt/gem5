@@ -303,6 +303,9 @@ class BaseDynInst : public ExecContext, public RefCounted
     Fault writeMem(uint8_t *data, unsigned size, Addr addr,
                    Request::Flags flags, uint64_t *res);
 
+    Fault initiateMemAMO(Addr addr, unsigned size, Request::Flags flags,
+                         AtomicOpFunctor *amo_op);
+
     /** True if the DTB address translation has started. */
     bool translationStarted() const { return instFlags[TranslationStarted]; }
     void translationStarted(bool f) { instFlags[TranslationStarted] = f; }
@@ -584,6 +587,11 @@ class BaseDynInst : public ExecContext, public RefCounted
     {
         return staticInst->numVecElemDestRegs();
     }
+    int8_t
+    numVecPredDestRegs() const
+    {
+        return staticInst->numVecPredDestRegs();
+    }
 
     /** Returns the logical register index of the i'th destination register. */
     const RegId& destRegIdx(int i) const { return staticInst->destRegIdx(i); }
@@ -638,6 +646,16 @@ class BaseDynInst : public ExecContext, public RefCounted
                         InstResult::ResultType::VecElem));
         }
     }
+
+    /** Predicate result. */
+    template<typename T>
+    void setVecPredResult(T&& t)
+    {
+        if (instFlags[RecordResult]) {
+            instResult.push(InstResult(std::forward<T>(t),
+                            InstResult::ResultType::VecPredReg));
+        }
+    }
     /** @} */
 
     /** Records an integer register being set to a value. */
@@ -647,7 +665,7 @@ class BaseDynInst : public ExecContext, public RefCounted
     }
 
     /** Records a CC register being set to a value. */
-    void setCCRegOperand(const StaticInst *si, int idx, CCReg val)
+    void setCCRegOperand(const StaticInst *si, int idx, RegVal val)
     {
         setScalarResult(val);
     }
@@ -670,6 +688,13 @@ class BaseDynInst : public ExecContext, public RefCounted
     void setVecElemOperand(const StaticInst *si, int idx, const VecElem val)
     {
         setVecElemResult(val);
+    }
+
+    /** Record a vector register being set to a value */
+    void setVecPredRegOperand(const StaticInst *si, int idx,
+                              const VecPredRegContainer& val)
+    {
+        setVecPredResult(val);
     }
 
     /** Records that one of the source registers is ready. */
@@ -896,6 +921,22 @@ BaseDynInst<Impl>::writeMem(uint8_t *data, unsigned size, Addr addr,
     return cpu->pushRequest(
             dynamic_cast<typename DynInstPtr::PtrType>(this),
             /* st */ false, data, size, addr, flags, res);
+}
+
+template<class Impl>
+Fault
+BaseDynInst<Impl>::initiateMemAMO(Addr addr, unsigned size,
+                                  Request::Flags flags,
+                                  AtomicOpFunctor *amo_op)
+{
+    // atomic memory instructions do not have data to be written to memory yet
+    // since the atomic operations will be executed directly in cache/memory.
+    // Therefore, its `data` field is nullptr.
+    // Atomic memory requests need to carry their `amo_op` fields to cache/
+    // memory
+    return cpu->pushRequest(
+            dynamic_cast<typename DynInstPtr::PtrType>(this),
+            /* atomic */ false, nullptr, size, addr, flags, nullptr, amo_op);
 }
 
 #endif // __CPU_BASE_DYN_INST_HH__

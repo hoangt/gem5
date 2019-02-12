@@ -257,7 +257,8 @@ def blobToCpp(data, symbol, cpp_code, hpp_code=None, namespace=None):
             hpp_code('}')
     if namespace is not None:
         cpp_code('namespace {} {{'.format(namespace))
-    cpp_code(symbol_len_declaration + ' = {};'.format(len(data)))
+    if hpp_code is not None:
+        cpp_code(symbol_len_declaration + ' = {};'.format(len(data)))
     cpp_code(symbol_declaration + ' = {')
     cpp_code.indent()
     step = 16
@@ -473,7 +474,7 @@ class UnitTest(Executable):
     def declare(self, env):
         sources = list(self.sources)
         for f in self.filters:
-            sources = Source.all.apply_filter(f)
+            sources += Source.all.apply_filter(f)
         objs = self.srcs_to_objs(env, sources) + env['STATIC_OBJS']
         if self.main:
             objs += env['MAIN_OBJS']

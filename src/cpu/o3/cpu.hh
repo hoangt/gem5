@@ -107,6 +107,8 @@ class FullO3CPU : public BaseO3CPU
     using VecElem =  TheISA::VecElem;
     using VecRegContainer =  TheISA::VecRegContainer;
 
+    using VecPredRegContainer = TheISA::VecPredRegContainer;
+
     typedef O3ThreadState<Impl> ImplState;
     typedef O3ThreadState<Impl> Thread;
 
@@ -202,6 +204,9 @@ class FullO3CPU : public BaseO3CPU
 
     /** The tick event used for scheduling CPU ticks. */
     EventFunctionWrapper tickEvent;
+
+    /** The exit event used for terminating all ready-to-exit threads */
+    EventFunctionWrapper threadExitEvent;
 
     /** Schedule tick event, regardless of its current state. */
     void scheduleTickEvent(Cycles delay)
@@ -329,6 +334,21 @@ class FullO3CPU : public BaseO3CPU
     void serializeThread(CheckpointOut &cp, ThreadID tid) const override;
     void unserializeThread(CheckpointIn &cp, ThreadID tid) override;
 
+    /** Insert tid to the list of threads trying to exit */
+    void addThreadToExitingList(ThreadID tid);
+
+    /** Is the thread trying to exit? */
+    bool isThreadExiting(ThreadID tid) const;
+
+    /**
+     *  If a thread is trying to exit and its corresponding trap event
+     *  has been completed, schedule an event to terminate the thread.
+     */
+    void scheduleThreadExitEvent(ThreadID tid);
+
+    /** Terminate all threads that are ready to exit */
+    void exitThreads();
+
   public:
     /** Executes a syscall.
      * @todo: Determine if this needs to be virtual.
@@ -408,7 +428,7 @@ class FullO3CPU : public BaseO3CPU
 
     RegVal readIntReg(PhysRegIdPtr phys_reg);
 
-    RegVal readFloatRegBits(PhysRegIdPtr phys_reg);
+    RegVal readFloatReg(PhysRegIdPtr phys_reg);
 
     const VecRegContainer& readVecReg(PhysRegIdPtr reg_idx) const;
 
@@ -457,21 +477,27 @@ class FullO3CPU : public BaseO3CPU
 
     const VecElem& readVecElem(PhysRegIdPtr reg_idx) const;
 
-    TheISA::CCReg readCCReg(PhysRegIdPtr phys_reg);
+    const VecPredRegContainer& readVecPredReg(PhysRegIdPtr reg_idx) const;
+
+    VecPredRegContainer& getWritableVecPredReg(PhysRegIdPtr reg_idx);
+
+    RegVal readCCReg(PhysRegIdPtr phys_reg);
 
     void setIntReg(PhysRegIdPtr phys_reg, RegVal val);
 
-    void setFloatRegBits(PhysRegIdPtr phys_reg, RegVal val);
+    void setFloatReg(PhysRegIdPtr phys_reg, RegVal val);
 
     void setVecReg(PhysRegIdPtr reg_idx, const VecRegContainer& val);
 
     void setVecElem(PhysRegIdPtr reg_idx, const VecElem& val);
 
-    void setCCReg(PhysRegIdPtr phys_reg, TheISA::CCReg val);
+    void setVecPredReg(PhysRegIdPtr reg_idx, const VecPredRegContainer& val);
+
+    void setCCReg(PhysRegIdPtr phys_reg, RegVal val);
 
     RegVal readArchIntReg(int reg_idx, ThreadID tid);
 
-    RegVal readArchFloatRegBits(int reg_idx, ThreadID tid);
+    RegVal readArchFloatReg(int reg_idx, ThreadID tid);
 
     const VecRegContainer& readArchVecReg(int reg_idx, ThreadID tid) const;
     /** Read architectural vector register for modification. */
@@ -501,7 +527,12 @@ class FullO3CPU : public BaseO3CPU
     const VecElem& readArchVecElem(const RegIndex& reg_idx,
                                    const ElemIndex& ldx, ThreadID tid) const;
 
-    TheISA::CCReg readArchCCReg(int reg_idx, ThreadID tid);
+    const VecPredRegContainer& readArchVecPredReg(int reg_idx,
+                                                  ThreadID tid) const;
+
+    VecPredRegContainer& getWritableArchVecPredReg(int reg_idx, ThreadID tid);
+
+    RegVal readArchCCReg(int reg_idx, ThreadID tid);
 
     /** Architectural register accessors.  Looks up in the commit
      * rename table to obtain the true physical index of the
@@ -510,14 +541,17 @@ class FullO3CPU : public BaseO3CPU
      */
     void setArchIntReg(int reg_idx, RegVal val, ThreadID tid);
 
-    void setArchFloatRegBits(int reg_idx, RegVal val, ThreadID tid);
+    void setArchFloatReg(int reg_idx, RegVal val, ThreadID tid);
+
+    void setArchVecPredReg(int reg_idx, const VecPredRegContainer& val,
+                           ThreadID tid);
 
     void setArchVecReg(int reg_idx, const VecRegContainer& val, ThreadID tid);
 
     void setArchVecElem(const RegIndex& reg_idx, const ElemIndex& ldx,
                         const VecElem& val, ThreadID tid);
 
-    void setArchCCReg(int reg_idx, TheISA::CCReg val, ThreadID tid);
+    void setArchCCReg(int reg_idx, RegVal val, ThreadID tid);
 
     /** Sets the commit PC state of a specific thread. */
     void pcState(const TheISA::PCState &newPCState, ThreadID tid);
@@ -631,6 +665,13 @@ class FullO3CPU : public BaseO3CPU
 
     /** Active Threads List */
     std::list<ThreadID> activeThreads;
+
+    /**
+     *  This is a list of threads that are trying to exit. Each thread id
+     *  is mapped to a boolean value denoting whether the thread is ready
+     *  to exit.
+     */
+    std::unordered_map<ThreadID, bool> exitingThreads;
 
     /** Integer Register Scoreboard */
     Scoreboard scoreboard;
@@ -752,10 +793,10 @@ class FullO3CPU : public BaseO3CPU
     /** CPU pushRequest function, forwards request to LSQ. */
     Fault pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
                       unsigned int size, Addr addr, Request::Flags flags,
-                      uint64_t *res)
+                      uint64_t *res, AtomicOpFunctor *amo_op = nullptr)
     {
         return iew.ldstQueue.pushRequest(inst, isLoad, data, size, addr,
-                flags, res);
+                flags, res, amo_op);
     }
 
     /** CPU read function, forwards read to LSQ. */
@@ -805,6 +846,9 @@ class FullO3CPU : public BaseO3CPU
     //number of vector register file accesses
     mutable Stats::Scalar vecRegfileReads;
     Stats::Scalar vecRegfileWrites;
+    //number of predicate register file accesses
+    mutable Stats::Scalar vecPredRegfileReads;
+    Stats::Scalar vecPredRegfileWrites;
     //number of CC register file accesses
     Stats::Scalar ccRegfileReads;
     Stats::Scalar ccRegfileWrites;

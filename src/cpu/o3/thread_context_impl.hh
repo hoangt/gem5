@@ -128,11 +128,18 @@ O3ThreadContext<Impl>::halt()
 {
     DPRINTF(O3CPU, "Calling halt on Thread Context %d\n", threadId());
 
-    if (thread->status() == ThreadContext::Halted)
+    if (thread->status() == ThreadContext::Halting ||
+        thread->status() == ThreadContext::Halted)
         return;
 
-    thread->setStatus(ThreadContext::Halted);
-    cpu->haltContext(thread->threadId());
+    // the thread is not going to halt/terminate immediately in this cycle.
+    // The thread will be removed after an exit trap is processed
+    // (e.g., after trapLatency cycles). Until then, the thread's status
+    // will be Halting.
+    thread->setStatus(ThreadContext::Halting);
+
+    // add this thread to the exiting list to mark that it is trying to exit.
+    cpu->addThreadToExitingList(thread->threadId());
 }
 
 template <class Impl>
@@ -205,9 +212,9 @@ O3ThreadContext<Impl>::readIntRegFlat(int reg_idx)
 
 template <class Impl>
 RegVal
-O3ThreadContext<Impl>::readFloatRegBitsFlat(int reg_idx)
+O3ThreadContext<Impl>::readFloatRegFlat(int reg_idx)
 {
-    return cpu->readArchFloatRegBits(reg_idx, thread->threadId());
+    return cpu->readArchFloatReg(reg_idx, thread->threadId());
 }
 
 template <class Impl>
@@ -233,7 +240,21 @@ O3ThreadContext<Impl>::readVecElemFlat(const RegIndex& idx,
 }
 
 template <class Impl>
-TheISA::CCReg
+const TheISA::VecPredRegContainer&
+O3ThreadContext<Impl>::readVecPredRegFlat(int reg_id) const
+{
+    return cpu->readArchVecPredReg(reg_id, thread->threadId());
+}
+
+template <class Impl>
+TheISA::VecPredRegContainer&
+O3ThreadContext<Impl>::getWritableVecPredRegFlat(int reg_id)
+{
+    return cpu->getWritableArchVecPredReg(reg_id, thread->threadId());
+}
+
+template <class Impl>
+RegVal
 O3ThreadContext<Impl>::readCCRegFlat(int reg_idx)
 {
     return cpu->readArchCCReg(reg_idx, thread->threadId());
@@ -250,9 +271,9 @@ O3ThreadContext<Impl>::setIntRegFlat(int reg_idx, RegVal val)
 
 template <class Impl>
 void
-O3ThreadContext<Impl>::setFloatRegBitsFlat(int reg_idx, RegVal val)
+O3ThreadContext<Impl>::setFloatRegFlat(int reg_idx, RegVal val)
 {
-    cpu->setArchFloatRegBits(reg_idx, val, thread->threadId());
+    cpu->setArchFloatReg(reg_idx, val, thread->threadId());
 
     conditionalSquash();
 }
@@ -277,7 +298,17 @@ O3ThreadContext<Impl>::setVecElemFlat(const RegIndex& idx,
 
 template <class Impl>
 void
-O3ThreadContext<Impl>::setCCRegFlat(int reg_idx, TheISA::CCReg val)
+O3ThreadContext<Impl>::setVecPredRegFlat(int reg_idx,
+                                         const VecPredRegContainer& val)
+{
+    cpu->setArchVecPredReg(reg_idx, val, thread->threadId());
+
+    conditionalSquash();
+}
+
+template <class Impl>
+void
+O3ThreadContext<Impl>::setCCRegFlat(int reg_idx, RegVal val)
 {
     cpu->setArchCCReg(reg_idx, val, thread->threadId());
 
