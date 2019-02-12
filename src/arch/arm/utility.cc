@@ -145,6 +145,24 @@ skipFunction(ThreadContext *tc)
     }
 }
 
+static void
+copyVecRegs(ThreadContext *src, ThreadContext *dest)
+{
+    auto src_mode = RenameMode<ArmISA::ISA>::mode(src->pcState());
+
+    // The way vector registers are copied (VecReg vs VecElem) is relevant
+    // in the O3 model only.
+    if (src_mode == Enums::Full) {
+        for (auto idx = 0; idx < NumVecRegs; idx++)
+            dest->setVecRegFlat(idx, src->readVecRegFlat(idx));
+    } else {
+        for (auto idx = 0; idx < NumVecRegs; idx++)
+            for (auto elem_idx = 0; elem_idx < NumVecElemPerVecReg; elem_idx++)
+                dest->setVecElemFlat(
+                    idx, elem_idx, src->readVecElemFlat(idx, elem_idx));
+    }
+}
+
 void
 copyRegs(ThreadContext *src, ThreadContext *dest)
 {
@@ -154,14 +172,13 @@ copyRegs(ThreadContext *src, ThreadContext *dest)
     for (int i = 0; i < NumFloatRegs; i++)
         dest->setFloatRegBitsFlat(i, src->readFloatRegBitsFlat(i));
 
-    for (int i = 0; i < NumVecRegs; i++)
-        dest->setVecRegFlat(i, src->readVecRegFlat(i));
-
     for (int i = 0; i < NumCCRegs; i++)
         dest->setCCReg(i, src->readCCReg(i));
 
     for (int i = 0; i < NumMiscRegs; i++)
         dest->setMiscRegNoEffect(i, src->readMiscRegNoEffect(i));
+
+    copyVecRegs(src, dest);
 
     // setMiscReg "with effect" will set the misc register mapping correctly.
     // e.g. updateRegMap(val)
@@ -205,7 +222,37 @@ longDescFormatInUse(ThreadContext *tc)
     return ArmSystem::haveLPAE(tc) && ttbcr.eae;
 }
 
-uint32_t
+RegVal
+readMPIDR(ArmSystem *arm_sys, ThreadContext *tc)
+{
+    CPSR cpsr = tc->readMiscReg(MISCREG_CPSR);
+    const ExceptionLevel current_el =
+        opModeToEL((OperatingMode) (uint8_t) cpsr.mode);
+
+    const bool is_secure = isSecureBelowEL3(tc);
+
+    switch (current_el) {
+      case EL0:
+        // Note: in MsrMrs instruction we read the register value before
+        // checking access permissions. This means that EL0 entry must
+        // be part of the table even if MPIDR is not accessible in user
+        // mode.
+        warn_once("Trying to read MPIDR at EL0\n");
+        M5_FALLTHROUGH;
+      case EL1:
+        if (ArmSystem::haveEL(tc, EL2) && !is_secure)
+            return tc->readMiscReg(MISCREG_VMPIDR_EL2);
+        else
+            return getMPIDR(arm_sys, tc);
+      case EL2:
+      case EL3:
+        return getMPIDR(arm_sys, tc);
+      default:
+        panic("Invalid EL for reading MPIDR register\n");
+    }
+}
+
+RegVal
 getMPIDR(ArmSystem *arm_sys, ThreadContext *tc)
 {
     // Multiprocessor Affinity Register MPIDR from Cortex(tm)-A15 Technical
