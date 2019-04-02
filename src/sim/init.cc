@@ -191,7 +191,11 @@ EmbeddedPyBind::getMap()
     return objs;
 }
 
+#if PY_MAJOR_VERSION >= 3
+PyObject *
+#else
 void
+#endif
 EmbeddedPyBind::initAll()
 {
     std::list<EmbeddedPyBind *> pending;
@@ -203,7 +207,6 @@ EmbeddedPyBind::initAll()
     pybind_init_debug(m_m5);
 
     pybind_init_event(m_m5);
-    pybind_init_pyobject(m_m5);
     pybind_init_stats(m_m5);
 
     for (auto &kv : getMap()) {
@@ -226,13 +229,18 @@ EmbeddedPyBind::initAll()
             }
         }
     }
+
+#if PY_MAJOR_VERSION >= 3
+    return m_m5.ptr();
+#endif
 }
 
-int
-initM5Python()
+void
+registerNativeModules()
 {
-    EmbeddedPyBind::initAll();
-    return EmbeddedPython::initAll();
+    auto result = PyImport_AppendInittab("_m5", EmbeddedPyBind::initAll);
+    if (result == -1)
+        panic("Failed to add _m5 to Python's inittab\n");
 }
 
 /*
@@ -306,11 +314,4 @@ m5Main(int argc, char **_argv)
 #endif
 
     return 0;
-}
-
-PyMODINIT_FUNC
-initm5(void)
-{
-    initM5Python();
-    PyImport_ImportModule(PyCC("m5"));
 }

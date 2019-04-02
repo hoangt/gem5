@@ -1,5 +1,4 @@
-# Copyright (c) 2005 The Regents of The University of Michigan
-# All rights reserved.
+# Copyright 2019 Google, Inc.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -24,50 +23,21 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Authors: Nathan Binkert
+# Authors: Gabe Black
 
-__all__ = [ 'orderdict' ]
+import _m5.systemc
 
-from UserDict import DictMixin
+from _m5.systemc import sc_main
+from _m5.systemc import sc_time
+from _m5.systemc import sc_main_result_code, sc_main_result_str
 
-class orderdict(dict, DictMixin):
-    def __init__(self, *args, **kwargs):
-        if len(args) > 1:
-            raise TypeError("expected at most one argument, got %d" % \
-                            len(args))
-        self._keys = []
-        self.update(*args, **kwargs)
+class ScMainResult(object):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
 
-    def __setitem__(self, key, item):
-        if key not in self:
-            self._keys.append(key)
-        super(orderdict, self).__setitem__(key, item)
+def sc_main_result():
+    '''Retrieve and return the results of running sc_main'''
+    return ScMainResult(sc_main_result_code(), sc_main_result_str())
 
-    def __delitem__(self, key):
-        super(orderdict, self).__delitem__(key)
-        self._keys.remove(key)
-
-    def clear(self):
-        super(orderdict, self).clear()
-        self._keys = []
-
-    def iterkeys(self):
-        for key in self._keys:
-            yield key
-
-    def itervalues(self):
-        for key in self._keys:
-            yield self[key]
-
-    def iteritems(self):
-        for key in self._keys:
-            yield key, self[key]
-
-    def keys(self):
-        return self._keys[:]
-
-    def values(self):
-        return [ self[key] for key in self._keys ]
-
-    def items(self):
-        return [ (self[key],key) for key in self._keys ]
+__all__ = [ 'sc_main', 'sc_time', 'sc_main_result' ]

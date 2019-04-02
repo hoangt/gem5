@@ -455,7 +455,7 @@ void
 TLB::regStats()
 {
     using namespace Stats;
-
+    BaseTLB::regStats();
     rdAccesses
         .name(name() + ".rdAccesses")
         .desc("TLB accesses on read requests");
@@ -511,10 +511,10 @@ TLB::unserialize(CheckpointIn &cp)
     }
 }
 
-BaseMasterPort *
-TLB::getMasterPort()
+Port *
+TLB::getTableWalkerPort()
 {
-    return &walker->getMasterPort("port");
+    return &walker->getPort("port");
 }
 
 } // namespace X86ISA

@@ -44,20 +44,21 @@
 #define __ARCH_GENERIC_TLB_HH__
 
 #include "base/logging.hh"
+#include "mem/mem_object.hh"
 #include "mem/request.hh"
-#include "sim/sim_object.hh"
 
 class ThreadContext;
 class BaseMasterPort;
 
-class BaseTLB : public SimObject
+class BaseTLB : public MemObject
 {
   protected:
     BaseTLB(const Params *p)
-        : SimObject(p)
+        : MemObject(p)
     {}
 
   public:
+
     enum Mode { Read, Write, Execute };
 
     class Translation
@@ -130,15 +131,15 @@ class BaseTLB : public SimObject
     virtual void takeOverFrom(BaseTLB *otlb) = 0;
 
     /**
-     * Get the table walker master port if present. This is used for
+     * Get the table walker port if present. This is used for
      * migrating port connections during a CPU takeOverFrom()
      * call. For architectures that do not have a table walker, NULL
      * is returned, hence the use of a pointer rather than a
      * reference.
      *
-     * @return A pointer to the walker master port or NULL if not present
+     * @return A pointer to the walker port or NULL if not present
      */
-    virtual BaseMasterPort* getMasterPort() { return NULL; }
+    virtual Port* getTableWalkerPort() { return NULL; }
 
     void memInvalidate() { flushAll(); }
 };

@@ -40,8 +40,8 @@ from m5.proxy import *
 from m5.util.fdthelper import *
 from m5.SimObject import SimObject
 
-from Device import PioDevice
-from Platform import Platform
+from m5.objects.Device import PioDevice
+from m5.objects.Platform import Platform
 
 class BaseGic(PioDevice):
     type = 'BaseGic'
@@ -128,7 +128,7 @@ class VGic(PioDevice):
     hv_addr = Param.Addr(0, "Address for hv control")
     pio_delay = Param.Latency('10ns', "Delay for PIO r/w")
    # The number of list registers is not currently configurable at runtime.
-    ppint = Param.UInt32("HV maintenance interrupt number")
+    maint_int = Param.UInt32("HV maintenance interrupt number")
 
     # gicv_iidr same as gicc_idr
     gicv_iidr = Param.UInt32(Self.gic.gicc_iidr,
@@ -156,7 +156,7 @@ class VGic(PioDevice):
 
         node.append(FdtPropertyWords("reg", regs))
         node.append(FdtPropertyWords("interrupts",
-                                     [1, int(self.ppint)-16, 0xf04]))
+                                     [1, int(self.maint_int)-16, 0xf04]))
 
         node.appendPhandle(gic)
 

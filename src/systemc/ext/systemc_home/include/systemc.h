@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2007 The Regents of The University of Michigan
- * All rights reserved.
+ * Copyright 2019 Google, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -25,43 +24,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Authors: Ali Saidi
+ * Authors: Gabe Black
  */
 
-/**
- * @file
- * Base Ethernet Object declaration.
- */
-
-#ifndef __DEV_NET_ETHEROBJECT_HH__
-#define __DEV_NET_ETHEROBJECT_HH__
-
-#include "params/EtherObject.hh"
-#include "sim/sim_object.hh"
-
-class EtherInt;
-
-/**
- * The base EtherObject class, allows for an accesor function to a
- * simobj that returns the Port.
- */
-class EtherObject : public SimObject
-{
-  public:
-    typedef EtherObjectParams Params;
-    EtherObject(const Params *params)
-        : SimObject(params) {}
-
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
-
-  public:
-    /** Additional function to return the Port of a memory object. */
-    virtual EtherInt *getEthPort(const std::string &if_name, int idx = -1) = 0;
-
-};
-
-#endif // __DEV_NET_ETHEROBJECT_HH__
+#include "../../systemc.h"

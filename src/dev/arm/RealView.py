@@ -45,31 +45,32 @@ from m5.defines import buildEnv
 from m5.params import *
 from m5.proxy import *
 from m5.util.fdthelper import *
-from ClockDomain import ClockDomain
-from VoltageDomain import VoltageDomain
-from Device import BasicPioDevice, PioDevice, IsaFake, BadAddr, DmaDevice
-from PciHost import *
-from Ethernet import NSGigE, IGbE_igb, IGbE_e1000
-from Ide import *
-from Platform import Platform
-from Terminal import Terminal
-from Uart import Uart
-from SimpleMemory import SimpleMemory
-from Gic import *
-from EnergyCtrl import EnergyCtrl
-from ClockedObject import ClockedObject
-from ClockDomain import SrcClockDomain
-from SubSystem import SubSystem
-from Graphics import ImageFormat
-from ClockedObject import ClockedObject
-from PS2 import *
-from VirtIOMMIO import MmioVirtIO
+from m5.objects.ClockDomain import ClockDomain
+from m5.objects.VoltageDomain import VoltageDomain
+from m5.objects.Device import \
+    BasicPioDevice, PioDevice, IsaFake, BadAddr, DmaDevice
+from m5.objects.PciHost import *
+from m5.objects.Ethernet import NSGigE, IGbE_igb, IGbE_e1000
+from m5.objects.Ide import *
+from m5.objects.Platform import Platform
+from m5.objects.Terminal import Terminal
+from m5.objects.Uart import Uart
+from m5.objects.SimpleMemory import SimpleMemory
+from m5.objects.Gic import *
+from m5.objects.EnergyCtrl import EnergyCtrl
+from m5.objects.ClockedObject import ClockedObject
+from m5.objects.ClockDomain import SrcClockDomain
+from m5.objects.SubSystem import SubSystem
+from m5.objects.Graphics import ImageFormat
+from m5.objects.ClockedObject import ClockedObject
+from m5.objects.PS2 import *
+from m5.objects.VirtIOMMIO import MmioVirtIO
 
 # Platforms with KVM support should generally use in-kernel GIC
 # emulation. Use a GIC model that automatically switches between
 # gem5's GIC model and KVM's GIC model if KVM is available.
 try:
-    from KvmGic import MuxingKvmGic
+    from m5.objects.KvmGic import MuxingKvmGic
     kvm_gicv2_class = MuxingKvmGic
 except ImportError:
     # KVM support wasn't compiled into gem5. Fallback to a
@@ -119,6 +120,10 @@ class GenericArmPciHost(GenericPciHost):
     int_policy = Param.ArmPciIntRouting("PCI interrupt routing policy")
     int_base = Param.Unsigned("PCI interrupt base")
     int_count = Param.Unsigned("Maximum number of interrupts used by this host")
+
+    # This python parameter can be used in configuration scripts to turn
+    # on/off the fdt dma-coherent flag when doing dtb autogeneration
+    _dma_coherent = True
 
     def generateDeviceTree(self, state):
         local_state = FdtState(addr_cells=3, size_cells=2, cpu_cells=1)
@@ -181,7 +186,8 @@ class GenericArmPciHost(GenericPciHost):
             m5.fatal("Unsupported PCI interrupt policy " +
                      "for Device Tree generation")
 
-        node.append(FdtProperty("dma-coherent"))
+        if self._dma_coherent:
+            node.append(FdtProperty("dma-coherent"))
 
         yield node
 
@@ -722,7 +728,7 @@ class VExpress_EMM(RealView):
 
     ### On-chip devices ###
     gic = Gic400(dist_addr=0x2C001000, cpu_addr=0x2C002000)
-    vgic   = VGic(vcpu_addr=0x2c006000, hv_addr=0x2c004000, ppint=25)
+    vgic   = VGic(vcpu_addr=0x2c006000, hv_addr=0x2c004000, maint_int=25)
 
     local_cpu_timer = CpuLocalTimer(int_timer=ArmPPI(num=29),
                                     int_watchdog=ArmPPI(num=30),
@@ -1056,7 +1062,7 @@ Interrupts:
 class VExpress_GEM5_V1_Base(VExpress_GEM5_Base):
     gic = kvm_gicv2_class(dist_addr=0x2c001000, cpu_addr=0x2c002000,
                           it_lines=512)
-    vgic = VGic(vcpu_addr=0x2c006000, hv_addr=0x2c004000, ppint=25)
+    vgic = VGic(vcpu_addr=0x2c006000, hv_addr=0x2c004000, maint_int=25)
     gicv2m = Gicv2m()
     gicv2m.frames = [
         Gicv2mFrame(spi_base=256, spi_len=64, addr=0x2c1c0000),
