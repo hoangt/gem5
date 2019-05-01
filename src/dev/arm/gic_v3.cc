@@ -48,20 +48,28 @@ Gicv3::Gicv3(const Params * p)
 void
 Gicv3::init()
 {
-    distRange = RangeSize(params()->dist_addr,
-                          Gicv3Distributor::ADDR_RANGE_SIZE - 1);
-    redistRange = RangeSize(params()->redist_addr,
-        Gicv3Redistributor::ADDR_RANGE_SIZE * sys->numContexts() - 1);
-    addrRanges = {distRange, redistRange};
-    BaseGic::init();
     distributor = new Gicv3Distributor(this, params()->it_lines);
     redistributors.resize(sys->numContexts(), nullptr);
     cpuInterfaces.resize(sys->numContexts(), nullptr);
+
+    panic_if(sys->numContexts() > params()->cpu_max,
+        "Exceeding maximum number of PEs supported by GICv3: "
+        "using %u while maximum is %u\n", sys->numContexts(),
+        params()->cpu_max);
 
     for (int i = 0; i < sys->numContexts(); i++) {
         redistributors[i] = new Gicv3Redistributor(this, i);
         cpuInterfaces[i] = new Gicv3CPUInterface(this, i);
     }
+
+    distRange = RangeSize(params()->dist_addr,
+        Gicv3Distributor::ADDR_RANGE_SIZE - 1);
+
+    redistSize = redistributors[0]->addrRangeSize;
+    redistRange = RangeSize(params()->redist_addr,
+         redistSize * sys->numContexts() - 1);
+
+    addrRanges = {distRange, redistRange};
 
     distributor->init();
 
@@ -69,6 +77,8 @@ Gicv3::init()
         redistributors[i]->init();
         cpuInterfaces[i]->init();
     }
+
+    BaseGic::init();
 }
 
 void
@@ -102,8 +112,8 @@ Gicv3::read(PacketPtr pkt)
     } else if (redistRange.contains(addr)) {
         Addr daddr = addr - redistRange.start();
         uint32_t redistributor_id =
-            daddr / Gicv3Redistributor::ADDR_RANGE_SIZE;
-        daddr = daddr % Gicv3Redistributor::ADDR_RANGE_SIZE;
+            daddr / redistSize;
+        daddr = daddr % redistSize;
         panic_if(redistributor_id >= redistributors.size(),
                  "Invalid redistributor_id!");
         panic_if(!redistributors[redistributor_id], "Redistributor is null!");
@@ -143,8 +153,8 @@ Gicv3::write(PacketPtr pkt)
     } else if (redistRange.contains(addr)) {
         Addr daddr = addr - redistRange.start();
         uint32_t redistributor_id =
-            daddr / Gicv3Redistributor::ADDR_RANGE_SIZE;
-        daddr = daddr % Gicv3Redistributor::ADDR_RANGE_SIZE;
+            daddr / redistSize;
+        daddr = daddr % redistSize;
         panic_if(redistributor_id >= redistributors.size(),
                  "Invalid redistributor_id!");
         panic_if(!redistributors[redistributor_id], "Redistributor is null!");
